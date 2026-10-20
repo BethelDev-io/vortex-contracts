@@ -10,9 +10,11 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
+solver_registry = { path = "../solver_registry" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+solver_registry = { path = "../solver_registry", features = ["testutils"] }
 
 [features]
 testutils = ["soroban-sdk/testutils"]
