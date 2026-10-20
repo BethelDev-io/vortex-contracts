@@ -625,3 +625,6 @@ Current ecosystem tooling examples:
 - #400: [High] Add an interface-version handshake between cooperating contracts
 <!-- handsoff-issue-404 -->
 - #404: [High] Add on-chain rate-of-change guardrails to protocol parameters
+
+<!-- handsoff-issue-467 -->
+- #467: [High] Fix `slash_solver`'s double-payment to the fee recipient and unfunded backstop vault
