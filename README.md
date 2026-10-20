@@ -628,3 +628,6 @@ Current ecosystem tooling examples:
 
 <!-- handsoff-issue-467 -->
 - #467: [High] Fix `slash_solver`'s double-payment to the fee recipient and unfunded backstop vault
+
+<!-- handsoff-issue-477 -->
+- #477: [High] Extend the `mutants` mutation-testing CI job to the five newest contracts
