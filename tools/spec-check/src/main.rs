@@ -12,6 +12,10 @@
 //! CI invokes the binary directly (see `.github/workflows/ci.yml`):
 //! `cargo run -p spec-check -- --check` builds every contract crate, extracts
 //! its spec, and exits non-zero on any unacknowledged breaking change.
+//!
+//! To (re)generate the committed baselines, run:
+//! `cargo run -p spec-check -- --write`
+//! which writes `specs/<crate>.json` for every contract crate.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -244,6 +248,7 @@ fn baseline_crates(root: &Path) -> Vec<(String, PathBuf)> {
         let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
             continue;
         };
+        // `allowlist.json` is not a crate baseline.
         if stem == "allowlist" {
             continue;
         }
@@ -253,13 +258,13 @@ fn baseline_crates(root: &Path) -> Vec<(String, PathBuf)> {
     crates
 }
 
-/// Build a contract crate's wasm artifact and return the path to it.
+/// Build a contract crate and return the path to its wasm artifact.
 fn build_wasm(root: &Path, crate_name: &str) -> Result<PathBuf, String> {
     let status = Command::new("cargo")
         .current_dir(root)
         .args(["build", "-p", crate_name, "--target", "wasm32-unknown-unknown", "--release"])
         .status()
-        .map_err(|e| format!("failed to spawn cargo build for {crate_name}: {e}"))?;
+        .map_err(|e| format!("failed to spawn cargo for {crate_name}: {e}"))?;
     if !status.success() {
         return Err(format!("cargo build failed for {crate_name}"));
     }
@@ -272,69 +277,132 @@ fn build_wasm(root: &Path, crate_name: &str) -> Result<PathBuf, String> {
     Ok(wasm)
 }
 
-/// Run the full check across every crate with a committed baseline.
-/// Returns the number of unacknowledged breaking changes.
-fn run_check(root: &Path) -> Result<usize, String> {
+/// Write a baseline for a single crate to `specs/<crate>.json`.
+fn write_baseline(root: &Path, crate_name: &str) -> Result<(), String> {
+    let wasm = build_wasm(root, crate_name)?;
+    let bytes = fs::read(&wasm).map_err(|e| format!("failed to read {}: {e}", wasm.display()))?;
+    let entries = extract_entries(&bytes)?;
+    let baseline = Baseline {
+        crate_name: crate_name.to_string(),
+        entries,
+    };
+    let specs_dir = root.join("specs");
+    fs::create_dir_all(&specs_dir)
+        .map_err(|e| format!("failed to create {}: {e}", specs_dir.display()))?;
+    let path = specs_dir.join(format!("{crate_name}.json"));
+    let json = serde_json::to_string_pretty(&baseline)
+        .map_err(|e| format!("failed to serialize baseline: {e}"))?;
+    fs::write(&path, format!("{json}\n"))
+        .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+    println!("wrote {}", path.display());
+    Ok(())
+}
+
+/// Check a single crate's current spec against its committed baseline.
+fn check_crate(root: &Path, crate_name: &str, baseline_path: &Path) -> Result<bool, String> {
+    let raw = fs::read_to_string(baseline_path)
+        .map_err(|e| format!("failed to read {}: {e}", baseline_path.display()))?;
+    let baseline: Baseline = serde_json::from_str(&raw)
+        .map_err(|e| format!("invalid {}: {e}", baseline_path.display()))?;
+
+    let wasm = build_wasm(root, crate_name)?;
+    let bytes = fs::read(&wasm).map_err(|e| format!("failed to read {}: {e}", wasm.display()))?;
+    let current = extract_entries(&bytes)?;
+
     let allowlist = load_allowlist(root);
-    let crates = baseline_crates(root);
-    if crates.is_empty() {
-        println!("spec-check: no committed baselines found under specs/");
-        return Ok(0);
-    }
+    let changes = diff(&baseline.entries, &current);
 
-    let mut breaking = 0usize;
-    for (crate_name, baseline_path) in crates {
-        let raw = fs::read_to_string(&baseline_path)
-            .map_err(|e| format!("failed to read {}: {e}", baseline_path.display()))?;
-        let baseline: Baseline = serde_json::from_str(&raw)
-            .map_err(|e| format!("invalid baseline {}: {e}", baseline_path.display()))?;
-
-        let wasm_path = build_wasm(root, &crate_name)?;
-        let wasm = fs::read(&wasm_path)
-            .map_err(|e| format!("failed to read {}: {e}", wasm_path.display()))?;
-        let current = extract_entries(&wasm)?;
-
-        let changes = diff(&baseline.entries, &current);
-        for change in changes {
-            match change.kind {
-                ChangeKind::Additive => {
-                    println!("[additive] {crate_name} {}: {}", change.entry, change.detail);
-                }
-                ChangeKind::Breaking => {
-                    if is_allowed(&allowlist, &crate_name, &change.entry) {
-                        println!(
-                            "[breaking-acknowledged] {crate_name} {}: {}",
-                            change.entry, change.detail
-                        );
-                    } else {
-                        eprintln!(
-                            "[breaking] {crate_name} {}: {}",
-                            change.entry, change.detail
-                        );
-                        breaking += 1;
-                    }
+    let mut ok = true;
+    for change in &changes {
+        match change.kind {
+            ChangeKind::Additive => {
+                println!("[additive] {crate_name} {}: {}", change.entry, change.detail);
+            }
+            ChangeKind::Breaking => {
+                if is_allowed(&allowlist, crate_name, &change.entry) {
+                    println!("[allowed]  {crate_name} {}: {}", change.entry, change.detail);
+                } else {
+                    ok = false;
+                    eprintln!("[breaking] {crate_name} {}: {}", change.entry, change.detail);
                 }
             }
         }
     }
-
-    Ok(breaking)
+    Ok(ok)
 }
 
 fn main() {
     let root = workspace_root();
-    match run_check(&root) {
-        Ok(0) => println!("spec-check: OK — no unacknowledged breaking changes"),
-        Ok(n) => {
-            eprintln!(
-                "spec-check: FAILED — {n} unacknowledged breaking change(s); \
-                 acknowledge via specs/allowlist.json with a tracking issue"
-            );
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let write = args.iter().any(|a| a == "--write");
+
+    if write {
+        // Regenerate baselines for every contract crate in the workspace.
+        let crates = contract_crates(&root);
+        if crates.is_empty() {
+            eprintln!("no contract crates found");
             std::process::exit(1);
         }
-        Err(e) => {
-            eprintln!("spec-check: error: {e}");
-            std::process::exit(2);
+        for crate_name in &crates {
+            if let Err(e) = write_baseline(&root, crate_name) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    let crates = baseline_crates(&root);
+    if crates.is_empty() {
+        eprintln!("no baselines found in specs/; run `cargo run -p spec-check -- --write`");
+        std::process::exit(1);
+    }
+
+    let mut all_ok = true;
+    for (crate_name, path) in &crates {
+        match check_crate(&root, crate_name, path) {
+            Ok(ok) => all_ok &= ok,
+            Err(e) => {
+                eprintln!("error: {e}");
+                all_ok = false;
+            }
         }
     }
+
+    if !all_ok {
+        eprintln!("\nspec-check failed: unacknowledged breaking changes detected");
+        std::process::exit(1);
+    }
+    println!("spec-check passed");
+}
+
+/// Discover every contract crate in the workspace (members with a `lib` target
+/// that produce a wasm artifact).
+fn contract_crates(root: &Path) -> Vec<String> {
+    let mut crates = Vec::new();
+    let Ok(read) = fs::read_dir(root) else {
+        return crates;
+    };
+    for entry in read.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let manifest = path.join("Cargo.toml");
+        if !manifest.exists() {
+            continue;
+        }
+        let Ok(raw) = fs::read_to_string(&manifest) else {
+            continue;
+        };
+        // Contract crates depend on `soroban-sdk`.
+        if !raw.contains("soroban-sdk") {
+            continue;
+        }
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            crates.push(name.to_string());
+        }
+    }
+    crates.sort();
+    crates
 }
