@@ -78,6 +78,7 @@ pub enum GovernorError {
     AlreadyExecuted = 13,
     ProposalCanceled = 14,
     SelfTargetForbidden = 15,
+    NotAuthorized = 16,
 }
 
 #[contracttype]
@@ -159,6 +160,37 @@ impl Governor {
         env.storage().persistent().set(&Self::proposal_key(&env, id), &proposal);
         env.storage().instance().set(&Symbol::new(&env, "count"), &(id + 1));
         Ok(id)
+    }
+
+    /// Cancel a proposal. Mirrors `timelock`'s cancel precedent: the proposer
+    /// may cancel before voting starts, and the timelock (acting as the
+    /// guardian/admin) may cancel at any point before execution.
+    pub fn cancel(env: Env, caller: Address, proposal_id: u32) -> Result<(), GovernorError> {
+        caller.require_auth();
+        let config = Self::config(&env)?;
+        let mut proposal = Self::proposal(&env, proposal_id)?;
+
+        if proposal.executed {
+            return Err(GovernorError::AlreadyExecuted);
+        }
+        if proposal.canceled {
+            return Err(GovernorError::ProposalCanceled);
+        }
+
+        let voting_started = env.ledger().sequence() >= proposal.snapshot + config.voting_delay;
+        let is_proposer = caller == proposal.proposer;
+        let is_admin = caller == config.timelock;
+        if !is_admin && !(is_proposer && !voting_started) {
+            return Err(GovernorError::NotAuthorized);
+        }
+
+        proposal.canceled = true;
+        env.storage().persistent().set(&Self::proposal_key(&env, proposal_id), &proposal);
+        env.events().publish(
+            (Symbol::new(&env, "proposal_canceled"), proposal_id),
+            caller,
+        );
+        Ok(())
     }
 
     /// Cast a vote. Power is read at the proposal snapshot, never at the
@@ -243,114 +275,6 @@ impl Governor {
         Ok(Self::state_of(&env, &config, &proposal))
     }
 
-    pub fn proposal(env: Env, proposal_id: u32) -> Result<Proposal, GovernorError> {
-        Self::proposal(&env, proposal_id)
-    }
+    pub fn proposal(env: Env, proposal_id: u32) -> Result<Proposal, Gove
 
-    pub fn voting_power(env: Env, account: Address, ledger: u32) -> Result<i128, GovernorError> {
-        let config = Self::config(&env)?;
-        Ok(Self::voting_power(&env, &config.registry, &account, ledger))
-    }
-
-    // --- internals ---
-
-    fn config(env: &Env) -> Result<GovernorConfig, GovernorError> {
-        env.storage()
-            .instance()
-            .get(&Symbol::new(env, "config"))
-            .ok_or(GovernorError::NotInitialized)
-    }
-
-    fn proposal(env: &Env, proposal_id: u32) -> Result<Proposal, GovernorError> {
-        env.storage()
-            .persistent()
-            .get(&Self::proposal_key(env, proposal_id))
-            .ok_or(GovernorError::ProposalNotFound)
-    }
-
-    fn state_of(env: &Env, config: &GovernorConfig, proposal: &Proposal) -> ProposalState {
-        if proposal.canceled {
-            return ProposalState::Canceled;
-        }
-        if proposal.executed {
-            return ProposalState::Executed;
-        }
-        let now = env.ledger().sequence();
-        if now < proposal.snapshot + config.voting_delay {
-            return ProposalState::Pending;
-        }
-        if now <= proposal.deadline {
-            return ProposalState::Active;
-        }
-        if proposal.eta != 0 {
-            return ProposalState::Queued;
-        }
-        let total = proposal.for_votes + proposal.against_votes + proposal.abstain_votes;
-        if proposal.for_votes > proposal.against_votes && total >= config.quorum {
-            ProposalState::Succeeded
-        } else {
-            ProposalState::Defeated
-        }
-    }
-
-    /// Read voting power from the registry's checkpointed history using a
-    /// binary search over the bounded checkpoint list.
-    fn voting_power(env: &Env, registry: &Address, account: &Address, ledger: u32) -> i128 {
-        let key = Self::checkpoint_key(env, registry, account);
-        let checkpoints: Vec<Checkpoint> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or(Vec::new(env));
-        Self::search(&checkpoints, ledger)
-    }
-
-    /// Binary search for the latest checkpoint at or before `ledger`.
-    fn search(checkpoints: &Vec<Checkpoint>, ledger: u32) -> i128 {
-        let len = checkpoints.len();
-        if len == 0 {
-            return 0;
-        }
-        let mut low: u32 = 0;
-        let mut high: u32 = len;
-        while low < high {
-            let mid = (low + high) / 2;
-            let cp = checkpoints.get(mid).unwrap();
-            if cp.ledger <= ledger {
-                low = mid + 1;
-            } else {
-                high = mid;
-            }
-        }
-        if low == 0 {
-            0
-        } else {
-            checkpoints.get(low - 1).unwrap().power
-        }
-    }
-
-    fn proposal_key(env: &Env, proposal_id: u32) -> (Symbol, u32) {
-        (Symbol::new(env, "proposal"), proposal_id)
-    }
-
-    fn vote_key(env: &Env, proposal_id: u32, voter: &Address) -> (Symbol, GovernorKey) {
-        (
-            Symbol::new(env, "vote"),
-            GovernorKey {
-                proposal_id,
-                voter: voter.clone(),
-            },
-        )
-    }
-
-    fn checkpoint_key(env: &Env, registry: &Address, account: &Address) -> (Symbol, Address, Address) {
-        (
-            Symbol::new(env, "checkpoint"),
-            registry.clone(),
-            account.clone(),
-        )
-    }
-}
-
-#[cfg(test)]
-mod test;
+/* … truncated 3459 chars — edit only what you need near the top … */
