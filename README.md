@@ -628,3 +628,6 @@ Current ecosystem tooling examples:
 
 <!-- handsoff-issue-568 -->
 - #568: [High] `proof_registry`'s contract-upgrade mechanism (#240) was never implemented
+
+<!-- handsoff-issue-569 -->
+- #569: [High] `Error::BatchSizeExceeded` (#239) was never added — batch entrypoints still reuse `Error::ZeroAmount` with a "no dedicated error" comment
