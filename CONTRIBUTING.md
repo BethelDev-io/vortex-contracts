@@ -91,19 +91,29 @@ cargo install --locked cargo-audit
 
 ## Project Structure
 
+The workspace is a multi-crate Cargo workspace. Each directory below is a
+separate crate with its own `Cargo.toml`.
+
 ```
 vortex-contracts/
-├── intent_settlement/       # The deployed Soroban contract
-│   ├── Cargo.toml
-│   ├── Cargo.lock
-│   └── src/
-│       ├── lib.rs           # All contract logic, types, and errors
-│       └── test.rs          # soroban_sdk testutils test suite
-├── docs/                    # Extended documentation
-│   ├── solver-integration-guide.md
-│   ├── mainnet-deployment-runbook.md
-│   ├── ttl-constants-rationale.md
-│   └── CONTRIBUTING.md      # This file
+├── intent_settlement/    # Core swap-intent lifecycle (submit, accept, fill, slash)
+├── solver_registry/      # Solver bond management, reputation checkpointing, tiers
+├── proof_registry/       # Cross-chain proof ingestion (Wormhole + Axelar adapters)
+├── reputation_badge/     # On-chain reputation badge NFT (SBT) for solvers
+├── governor/             # Stake-weighted on-chain governor (propose, vote, execute)
+├── backstop_vault/       # LP vault absorbing solver-default losses, earns fee share
+├── fee_router/           # Pull-based fee splitter routing protocol revenue to sinks
+├── intent_periphery/     # Heavy view/governance surface extracted from core (issue #376)
+├── timelock/             # TimelockController queuing governor-passed proposals
+├── treasury_streams/     # Token vesting streams for grants and contributor payments
+├── vortex-common/        # Shared types and constants used across multiple crates
+├── examples/
+│   └── policy_daily_cap/ # Reference policy hook: daily-cap rate limiter
+├── tools/
+│   └── spec-check/       # CI tool: validates ABI specs match deployed contract ABIs
+├── docs/                 # Extended documentation and ADRs
+├── scripts/              # CLI helpers (invoke.sh, e2e-test.sh, …)
+├── Cargo.toml            # Workspace manifest
 ├── README.md
 ├── CHANGELOG.md
 └── .github/
@@ -111,24 +121,31 @@ vortex-contracts/
         └── ci.yml
 ```
 
-The entire on-chain logic lives in `intent_settlement/src/lib.rs`. There are no
-additional modules — keep it that way unless a refactor is explicitly discussed
-and agreed on in an issue first.
+Each contract crate is independently deployable. Changes that touch a crate's
+public interface (entrypoints, events, errors) must be reflected in
+`CHANGELOG.md` and, where applicable, in `docs/event-schema.md`.
 
 ---
 
 ## Build
 
-```bash
-cd intent_settlement
+Build a single contract from its directory:
 
+```bash
+cd intent_settlement   # or any other contract crate
 stellar contract build
 ```
 
 The optimized wasm artifact is written to:
 
 ```
-intent_settlement/target/wasm32-unknown-unknown/release/vortex_intent_settlement.wasm
+<crate>/target/wasm32-unknown-unknown/release/<crate_name>.wasm
+```
+
+To build every contract in the workspace at once, use the root Makefile target:
+
+```bash
+make build
 ```
 
 `stellar contract build` runs `cargo build --target wasm32-unknown-unknown
@@ -138,12 +155,16 @@ intent_settlement/target/wasm32-unknown-unknown/release/vortex_intent_settlement
 
 ## Testing
 
-Tests live in `intent_settlement/src/test.rs` and use `soroban_sdk`'s
-`testutils` feature to run a simulated Soroban environment in-process — no
-network or deployed contract required.
+Each crate has its own test suite under `src/test.rs` (or `src/tests/`), using
+`soroban_sdk`'s `testutils` feature to run a simulated Soroban environment
+in-process — no network or deployed contract required.
 
 ```bash
+# Test a single crate
 cd intent_settlement
+cargo test
+
+# Test the whole workspace from the root
 cargo test
 ```
 
@@ -207,12 +228,10 @@ All of these must pass cleanly before a PR is merged. Run them locally before
 pushing:
 
 ```bash
-cd intent_settlement
-
-# Format (edits in place)
+# Format (edits in place) — run from repo root to cover all crates
 cargo fmt --all
 
-# Lint (must produce zero warnings)
+# Lint (must produce zero warnings) — run from repo root
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -225,7 +244,7 @@ the suppression is intentional and safe.
 ## Dependency Auditing
 
 ```bash
-cd intent_settlement
+# Audit from the repo root covers all workspace crates
 cargo audit
 ```
 
@@ -238,9 +257,12 @@ the CHANGELOG entry.
 
 ### Automated Dependency Updates with Dependabot
 
-Dependabot is configured to automatically open PRs for dependency updates in both
-`intent_settlement/` and `proof_registry/`, plus GitHub Actions versions in
-`.github/workflows/`. See [`.github/dependabot.yml`](.github/dependabot.yml).
+Dependabot is configured to automatically open PRs for dependency updates in
+every contract crate (`intent_settlement/`, `proof_registry/`, `solver_registry/`,
+`reputation_badge/`, `governor/`, `backstop_vault/`, `fee_router/`,
+`intent_periphery/`, `timelock/`, `treasury_streams/`, `vortex-common/`,
+`examples/policy_daily_cap/`, `tools/spec-check/`), plus GitHub Actions versions
+in `.github/workflows/`. See [`.github/dependabot.yml`](.github/dependabot.yml).
 
 **Dependabot PR Review Policy:** Every dependency-update PR from Dependabot must pass
 the same CI gates as any manually-submitted PR — `fmt`, `clippy`, `test`, `build`,
@@ -388,11 +410,10 @@ code review above.
 
 2. Make your changes, then run the full check suite locally:
    ```bash
-   cd intent_settlement
    cargo fmt --all
    cargo clippy --all-targets -- -D warnings
    cargo test
-   stellar contract build
+   make build   # builds all contract crates
    cargo audit
    ```
 
