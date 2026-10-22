@@ -8,6 +8,50 @@ blast-radius table in this file.
 
 ---
 
+## Code of Conduct — financial-stakes supplement
+
+This repository has a repo-specific [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
+that supplements the org-wide `CONTRIBUTING.md` code-of-conduct reference. It
+does not replace or supersede the org-wide policy; it adds conduct expectations
+specific to a live, funds-bearing protocol. The sections below are the
+security-relevant parts of that supplement, grounded in this file's threat
+model.
+
+### Responsible-disclosure conduct
+
+The reporting instructions above ("do not open a public GitHub issue for
+security vulnerabilities") are a conduct norm, not merely a suggestion. A
+contributor who discloses an unpatched vulnerability in a public issue, PR,
+chat, or social channel — including a partial hint sufficient to reproduce it —
+has violated this code of conduct. Consequences are described in
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md#responsible-disclosure-conduct) and
+range from a warning to removal from the contributor pool, and, where funds are
+at risk, referral to the maintainers' incident process. Legitimate security
+research is welcome and protected; exploitation of a live protocol is not.
+
+### Privileged information and conflicts of interest
+
+Anyone with admin, arbiter, or maintainer authority — and any reviewer who is
+also a registered, actively-bonded solver — holds privileged knowledge that can
+move real money. In particular, knowledge of a pending `propose_*` change
+during its timelock window, of an unpatched vulnerability, or of an upcoming
+admin action (pause, fee-recipient change, allowlist change) must not be used
+for personal advantage, front-running, or tipping off a solver. The
+conflict-of-interest and privileged-information standard, including the
+arbiter-specific policy tracked in issue `#115`
+([`docs/arbiter-code-of-conduct.md`](docs/arbiter-code-of-conduct.md)), lives in
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md#conflicts-of-interest-and-privileged-information).
+
+### Enforcement and reporting
+
+Conduct concerns — including suspected misuse of privileged information or a
+public disclosure of an unpatched vulnerability — are reported through the
+private channel described in [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md#enforcement-and-reporting),
+not in a public issue thread. Security vulnerabilities themselves continue to
+be reported per the instructions above.
+
+---
+
 ## Threat Model — `intent_settlement`
 
 This document describes the trust assumptions, assets at risk, and known
@@ -167,153 +211,4 @@ hardware wallet — never a hot wallet or a key stored in plaintext.
    have a distinct admin key. Reusing a key across environments means a
    compromise on a lower-trust environment immediately threatens mainnet.
 
-3. **Minimal admin transactions.** Admin calls should originate from an
-   air-gapped or dedicated signing machine. Never sign admin transactions from
-   a machine used for general web browsing or software development.
-
-4. **Pre-launch checklist.** Before enabling mainnet enforcement:
-   - Populate `add_allowed_src_chain` with every supported source chain.
-   - Call `set_src_chain_allowlist_enabled(true)`.
-   - Populate `add_allowed_dst_token` for every supported output token.
-   - Call `set_dst_allowlist_enabled(true)`.
-   - Confirm `get_admin()` and `get_fee_recipient()` return the expected
-     multisig addresses.
-   - See [`docs/pre-deploy-security-checklist.md`](./docs/pre-deploy-security-checklist.md)
-     for the full checklist.
-
-5. **Monitor fee recipient.** `set_fee_recipient` (via the two-step
-   `propose_fee_recipient` / `accept_fee_recipient` flow) redirects all
-   protocol fee and slash proceeds. Monitor the `fee_recipient_proposed` and
-   `fee_recipient_updated` events on-chain; any unexpected proposal should be
-   treated as a potential compromise.
-
-6. **Pause is not a long-term solution.** `pause()` is an incident-response
-   tool, not a substitute for fixing a bug. A paused contract still holds
-   solver bonds; resolve the incident and unpause as quickly as safely
-   possible to minimise disruption to solvers and users.
-
-7. **Post-incident key rotation.** Any time there is evidence that the admin
-   key may have been exposed (phishing, malware, shoulder-surfing), rotate
-   immediately via `transfer_admin` and notify all registered solvers.
-
-#### What a compromised admin key can and cannot do
-
-| Can do | Cannot do |
-|--------|-----------|
-| Pause the contract (halt new swaps) | Transfer user funds directly |
-| Redirect future fees and slashes via `propose_fee_recipient` | Drain solver bonds |
-| Add/remove tokens from dst and src allowlists | Cancel or fill intents on behalf of others |
-| Rotate itself to a new admin address | Bypass the solver bond slash (still permissionless) |
-| Disable allowlist enforcement | Recover already-transferred tokens |
-
-The blast radius of a compromised key is **griefing and fee theft**, not direct
-fund theft. Solver bonds and in-flight intent outputs are only moved by
-`fill_intent`, `slash_solver`, and `rescue_tokens` — none of which are callable
-unilaterally by the admin without other protocol preconditions being met first
-(except `rescue_tokens`, which is limited to non-bond, non-active-intent tokens).
-
----
-
-### Known Limitations
-
-- **Cross-chain proof is opt-in.** By default the contract does not verify the
-  source-chain transaction and trust is economic, not cryptographic. Issue #190
-  adds an admin-enabled `ProofRegistry` gate (`fill_intent(..., require_proof =
-  true)`) that makes a verified Wormhole deposit a precondition for the fill;
-  until an operator configures it and solvers opt in, the economic-only model
-  above still applies.
-- **Single admin key.** There is no multi-sig or timelock on admin operations.
-  Protocol operators should secure the admin key with a hardware wallet or
-  multi-sig wrapper before mainnet.
-- **Bond slash is proportional to intent size (issue #193).** `slash_solver`
-  slashes `min(unfilled_output, bond) / 10` — an amount scaled to the intent the
-  solver failed to fill — capped at 10 % of the bond (so a well-matched bond is
-  never punished harder than the old flat rate) and floored at 1 stroop (issue
-  #32). Cross-token value comparison between the bond token and the destination
-  token is still out of scope and assumes same-token comparability or an
-  admin-set per-token minimum; a price-oracle-based comparison remains on the
-  roadmap.
-- **Intent re-open after slash.** After `slash_solver` the intent is reset to
-  `Open` (or `PartiallyFilled`) with a fresh deadline. This is now bounded:
-  `ProtocolConfig.max_slash_cycles` caps how many times an intent can cycle
-  through `Open → Accepted → Slashed` before it transitions to the terminal
-  `Abandoned` state instead of re-opening.
-- **No allowlist by default.** Until an admin calls `set_dst_allowlist_enabled(true)`,
-  any token address — including malicious contracts — can be used as `dst_token`.
-
-#### Closed gap: slash-cooldown and reputation reset via deregister/re-register (#272)
-
-**Previously:** `deregister_solver` removed the `SolverRecord` entirely.  A
-re-registration by the same address would create a brand-new record with
-`last_slash_time = 0`, `fills_completed = 0`, and `fills_failed = 0`.  This
-allowed a just-slashed solver to (a) bypass `SLASH_COOLDOWN` immediately by
-deregistering and re-registering, and (b) wipe their entire fill history to
-reset `compute_reputation_score` to a clean slate — defeating the reputation
-system's value as a persistent, hard-to-game track record.
-
-**Fix (option b — preserve across the cycle):** `deregister_solver` now writes
-a `ReputationSnapshot` to `DataKey::SolverReputation(address)` before removing
-the `SolverRecord`.  `register_solver` reads that snapshot (if present) and
-carries `last_slash_time`, `fills_completed`, `fills_failed`, and `total_volume`
-forward into the new record, then removes the snapshot.  A solver who was never
-slashed and has no prior fills sees identical behaviour to before (no snapshot
-→ zero-initialised fields).
-
-**Why option b over option a (block deregistration during cooldown)?** Blocking
-deregistration would add friction to legitimate solver exits that happen to
-coincide with a recent slash — for example, a solver winding down operations
-after a network disruption.  Preserving the fields instead closes both the
-cooldown-bypass and the reputation-reset exploits without restricting the
-deregistration path at all.
-
-#### Closed gap: bond withdrawal with active intents (#270)
-
-**Previously:** `withdraw_bond` checked only that the post-withdrawal balance
-stayed at or above `cfg.min_bond`, without checking whether the solver had
-`active_intents > 0`.  A solver holding one or more `Accepted` intents could
-withdraw their bond all the way down to the flat `min_bond` floor, leaving
-those already-accepted intents backed by collateral far below the
-`get_adjusted_min_bond` value that was required to accept them in the first
-place.  This directly undermined the bond's purpose as collateral for in-flight
-obligations.
-
-**Example:** A 500 USDC bond can normally accept multiple intents, each
-individually validated at accept-time against `get_adjusted_min_bond` (e.g.,
-150 USDC per intent). The solver could immediately call `withdraw_bond` to
-pull out everything down to `min_bond` (as low as 50 USDC), leaving those
-already-accepted intents backed by 50 USDC total — 67 % under-collateralized
-relative to what was required to accept them.
-
-**Fix (conservative bound):** `withdraw_bond` now checks `if record.active_intents > 0`
-before allowing any withdrawal, mirroring `deregister_solver`'s stricter
-all-or-nothing precedent: a solver with any active intents cannot withdraw at
-all.  This is a fail-safe, conservative bound; a more precise per-intent
-collateral-reservation model (informed by issue #60's enumerable-intents view)
-remains a future enhancement but is not necessary for correctness.
-
-**Trade-off:** A solver who accepts an intent but immediately regrets it must
-wait for that intent to be slashed or expire before withdrawing further bond.
-This is correct behaviour — it prevents gaming the bond floor and ensures
-accepted intents never lack the collateral that was promised at accept-time.
-
----
-
-### Bug Bounty Program
-
-Vortex Protocol offers a security bug bounty program for findings in the `intent_settlement` and `proof_registry` contracts. See [`docs/bug-bounty-program.md`](./docs/bug-bounty-program.md) for severity tiers, reward structure, and submission process.
-
-### Incident Response and Postmortem Process
-
-When a P1 incident occurs on mainnet (unexpected pause, admin key transfer, fee recipient change, or `rescue_tokens` invocation), the protocol publishes a postmortem within 5 business days of resolution per [`docs/incident-postmortem-template.md`](./docs/incident-postmortem-template.md) (issue #301). Postmortems include timeline, root cause, impact assessment, and preventive actions tracked as follow-up issues.
-
-**Exception:** If the root cause involves a not-yet-fully-patched vulnerability, an initial postmortem may be published with technical details redacted, followed by a full postmortem within a defined safe-harbor period (typically 30 days).
-
-### Reporting a Vulnerability
-
-Please do **not** open a public GitHub issue for security vulnerabilities.
-Follow the responsible-disclosure process described in the org-level
-[SECURITY.md](https://github.com/vortex-protocol/.github/blob/main/SECURITY.md).
-
-`REAL_MONEY=false`. No payout is authorized until treasury infrastructure
-is funded. Responsible disclosure still follows the process in this
-document.
+3. **Minimal admin transactio
