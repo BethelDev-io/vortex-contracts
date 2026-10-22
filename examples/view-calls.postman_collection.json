@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Vortex intent_settlement read-only views",
-    "description": "Example Stellar RPC simulateTransaction requests for every read-only view in intent_settlement/src/lib.rs. Generate each *_tx_xdr value with the Stellar CLI against your deployed contract, then import this collection into Postman, Insomnia, or any tool that accepts Postman collections.",
+    "name": "Vortex read-only views",
+    "description": "Example Stellar RPC simulateTransaction requests for every read-only view in intent_settlement, governor, backstop_vault, fee_router, treasury_streams, and intent_periphery. Generate each *_tx_xdr value with the Stellar CLI against your deployed contract, then import this collection into Postman, Insomnia, or any tool that accepts Postman collections.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,13 +14,33 @@
       "value": "REPLACE_WITH_DEPLOYED_CONTRACT_ID"
     },
     {
+      "key": "governor_contract_id",
+      "value": "REPLACE_WITH_DEPLOYED_GOVERNOR_CONTRACT_ID"
+    },
+    {
+      "key": "backstop_vault_contract_id",
+      "value": "REPLACE_WITH_DEPLOYED_BACKSTOP_VAULT_CONTRACT_ID"
+    },
+    {
+      "key": "fee_router_contract_id",
+      "value": "REPLACE_WITH_DEPLOYED_FEE_ROUTER_CONTRACT_ID"
+    },
+    {
+      "key": "treasury_streams_contract_id",
+      "value": "REPLACE_WITH_DEPLOYED_TREASURY_STREAMS_CONTRACT_ID"
+    },
+    {
+      "key": "intent_periphery_contract_id",
+      "value": "REPLACE_WITH_DEPLOYED_INTENT_PERIPHERY_CONTRACT_ID"
+    },
+    {
       "key": "source_account",
       "value": "REPLACE_WITH_PUBLIC_KEY_USED_TO_BUILD_TX"
     }
   ],
   "item": [
     {
-      "name": "get_admin",
+      "name": "intent_settlement_get_admin",
       "request": {
         "method": "POST",
         "header": [
@@ -38,7 +58,7 @@
       }
     },
     {
-      "name": "get_arbiter",
+      "name": "intent_settlement_get_arbiter",
       "request": {
         "method": "POST",
         "header": [
@@ -56,7 +76,7 @@
       }
     },
     {
-      "name": "get_best_bid",
+      "name": "intent_settlement_get_best_bid",
       "request": {
         "method": "POST",
         "header": [
@@ -74,7 +94,7 @@
       }
     },
     {
-      "name": "get_bond_token",
+      "name": "intent_settlement_get_bond_token",
       "request": {
         "method": "POST",
         "header": [
@@ -92,7 +112,7 @@
       }
     },
     {
-      "name": "get_bond_token_min",
+      "name": "intent_settlement_get_bond_token_min",
       "request": {
         "method": "POST",
         "header": [
@@ -110,7 +130,7 @@
       }
     },
     {
-      "name": "get_config",
+      "name": "intent_settlement_get_config",
       "request": {
         "method": "POST",
         "header": [
@@ -128,7 +148,7 @@
       }
     },
     {
-      "name": "get_effective_intent_state",
+      "name": "intent_settlement_get_effective_intent_state",
       "request": {
         "method": "POST",
         "header": [
@@ -146,7 +166,7 @@
       }
     },
     {
-      "name": "get_fee_recipient",
+      "name": "intent_settlement_get_fee_recipient",
       "request": {
         "method": "POST",
         "header": [
@@ -164,7 +184,7 @@
       }
     },
     {
-      "name": "get_intent",
+      "name": "intent_settlement_get_intent",
       "request": {
         "method": "POST",
         "header": [
@@ -182,7 +202,7 @@
       }
     },
     {
-      "name": "get_max_active_intents_per_solver",
+      "name": "intent_settlement_get_max_active_intents_per_solver",
       "request": {
         "method": "POST",
         "header": [
@@ -200,7 +220,7 @@
       }
     },
     {
-      "name": "get_min_bond_multiplier",
+      "name": "intent_settlement_get_min_bond_multiplier",
       "request": {
         "method": "POST",
         "header": [
@@ -218,7 +238,7 @@
       }
     },
     {
-      "name": "get_pauser",
+      "name": "intent_settlement_get_pauser",
       "request": {
         "method": "POST",
         "header": [
@@ -236,7 +256,7 @@
       }
     },
     {
-      "name": "get_pending_admin",
+      "name": "intent_settlement_get_pending_admin",
       "request": {
         "method": "POST",
         "header": [
@@ -254,7 +274,7 @@
       }
     },
     {
-      "name": "get_pending_fee_recipient",
+      "name": "intent_settlement_get_pending_fee_recipient",
       "request": {
         "method": "POST",
         "header": [
@@ -272,7 +292,7 @@
       }
     },
     {
-      "name": "get_pending_upgrade",
+      "name": "intent_settlement_get_pending_upgrade",
       "request": {
         "method": "POST",
         "header": [
@@ -290,7 +310,7 @@
       }
     },
     {
-      "name": "get_proof_registry",
+      "name": "intent_settlement_get_proof_registry",
       "request": {
         "method": "POST",
         "header": [
@@ -308,7 +328,7 @@
       }
     },
     {
-      "name": "get_protocol_health",
+      "name": "intent_settlement_get_protocol_health",
       "request": {
         "method": "POST",
         "header": [
@@ -326,7 +346,7 @@
       }
     },
     {
-      "name": "get_reputation_score",
+      "name": "intent_settlement_get_reputation_score",
       "request": {
         "method": "POST",
         "header": [
@@ -344,7 +364,7 @@
       }
     },
     {
-      "name": "get_solver",
+      "name": "intent_settlement_get_solver",
       "request": {
         "method": "POST",
         "header": [
@@ -362,7 +382,7 @@
       }
     },
     {
-      "name": "get_solver_bond",
+      "name": "intent_settlement_get_solver_bond",
       "request": {
         "method": "POST",
         "header": [
@@ -380,7 +400,7 @@
       }
     },
     {
-      "name": "get_solver_bonds",
+      "name": "intent_settlement_get_solver_bonds",
       "request": {
         "method": "POST",
         "header": [
@@ -398,7 +418,7 @@
       }
     },
     {
-      "name": "get_solver_count",
+      "name": "intent_settlement_get_solver_count",
       "request": {
         "method": "POST",
         "header": [
@@ -416,7 +436,7 @@
       }
     },
     {
-      "name": "get_solver_intents",
+      "name": "intent_settlement_get_solver_intents",
       "request": {
         "method": "POST",
         "header": [
@@ -434,7 +454,7 @@
       }
     },
     {
-      "name": "get_solver_routes",
+      "name": "intent_settlement_get_solver_routes",
       "request": {
         "method": "POST",
         "header": [
@@ -452,7 +472,7 @@
       }
     },
     {
-      "name": "get_stats",
+      "name": "intent_settlement_get_stats",
       "request": {
         "method": "POST",
         "header": [
@@ -470,7 +490,7 @@
       }
     },
     {
-      "name": "get_token_stats",
+      "name": "intent_settlement_get_token_stats",
       "request": {
         "method": "POST",
         "header": [
@@ -488,7 +508,7 @@
       }
     },
     {
-      "name": "is_allowed_bond_token",
+      "name": "intent_settlement_is_allowed_bond_token",
       "request": {
         "method": "POST",
         "header": [
@@ -506,7 +526,7 @@
       }
     },
     {
-      "name": "is_bid_window_enabled",
+      "name": "intent_settlement_is_bid_window_enabled",
       "request": {
         "method": "POST",
         "header": [
@@ -524,7 +544,7 @@
       }
     },
     {
-      "name": "is_dst_allowlist_enabled",
+      "name": "intent_settlement_is_dst_allowlist_enabled",
       "request": {
         "method": "POST",
         "header": [
@@ -542,7 +562,7 @@
       }
     },
     {
-      "name": "is_dst_token_allowed",
+      "name": "intent_settlement_is_dst_token_allowed",
       "request": {
         "method": "POST",
         "header": [
@@ -560,7 +580,7 @@
       }
     },
     {
-      "name": "is_paused",
+      "name": "intent_settlement_is_paused",
       "request": {
         "method": "POST",
         "header": [
@@ -578,7 +598,7 @@
       }
     },
     {
-      "name": "is_solver_eligible",
+      "name": "intent_settlement_is_solver_eligible",
       "request": {
         "method": "POST",
         "header": [
@@ -596,7 +616,7 @@
       }
     },
     {
-      "name": "is_src_chain_allowed",
+      "name": "intent_settlement_is_src_chain_allowed",
       "request": {
         "method": "POST",
         "header": [
@@ -614,7 +634,7 @@
       }
     },
     {
-      "name": "is_src_chain_allowlist_enabled",
+      "name": "intent_settlement_is_src_chain_allowlist_enabled",
       "request": {
         "method": "POST",
         "header": [
@@ -632,7 +652,7 @@
       }
     },
     {
-      "name": "list_allowed_dst_tokens",
+      "name": "intent_settlement_list_allowed_dst_tokens",
       "request": {
         "method": "POST",
         "header": [
@@ -650,7 +670,7 @@
       }
     },
     {
-      "name": "list_intents_by_user",
+      "name": "intent_settlement_list_intents_by_user",
       "request": {
         "method": "POST",
         "header": [
@@ -668,7 +688,7 @@
       }
     },
     {
-      "name": "list_solvers",
+      "name": "intent_settlement_list_solvers",
       "request": {
         "method": "POST",
         "header": [

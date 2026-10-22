@@ -220,3 +220,6 @@ impl TreasuryStreams {
 
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod bench;

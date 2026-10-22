@@ -524,3 +524,6 @@ impl BackstopVault {
             .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
     }
 }
+
+#[cfg(test)]
+mod bench;

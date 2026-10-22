@@ -43,6 +43,7 @@ use soroban_sdk::{
 enum DataKey {
     Admin,
     Settlement,
+    PendingSettlement,
 }
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
@@ -54,6 +55,7 @@ pub enum Error {
     AlreadyInitialized = 1,
     NotInitialized = 2,
     Unauthorized = 3,
+    NoPendingSettlement = 4,
 }
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
@@ -81,8 +83,15 @@ impl IntentPeriphery {
         );
     }
 
-    /// Admin-only: point the periphery at a new core settlement contract.
-    pub fn set_settlement(env: Env, settlement: Address) {
+    /// Admin-only, step 1 of 2: propose a new core settlement contract.
+    ///
+    /// The live `Settlement` pointer is *not* changed here. The proposal is
+    /// stored under `PendingSettlement` and must be promoted by a second,
+    /// separately-authenticated `accept_settlement` call (two-step pattern,
+    /// see closed issue #118). This gives operators a visibility window in
+    /// which a mistaken or compromised proposal can be noticed before it
+    /// redirects every proxy view in this contract.
+    pub fn propose_settlement(env: Env, settlement: Address) {
         let admin: Address = env
             .storage()
             .instance()
@@ -91,7 +100,30 @@ impl IntentPeriphery {
         admin.require_auth();
         env.storage()
             .instance()
+            .set(&DataKey::PendingSettlement, &settlement);
+        env.events()
+            .publish((Symbol::new(&env, "settlement_proposed"),), settlement);
+    }
+
+    /// Admin-only, step 2 of 2: promote the pending settlement to live.
+    ///
+    /// Panics with `NoPendingSettlement` if no proposal is outstanding.
+    pub fn accept_settlement(env: Env) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+        let settlement: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingSettlement)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NoPendingSettlement));
+        env.storage()
+            .instance()
             .set(&DataKey::Settlement, &settlement);
+        env.storage().instance().remove(&DataKey::PendingSettlement);
         env.events()
             .publish((Symbol::new(&env, "settlement_updated"),), settlement);
     }
@@ -99,6 +131,11 @@ impl IntentPeriphery {
     /// Return the core settlement contract this periphery reads from.
     pub fn get_settlement(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::Settlement)
+    }
+
+    /// Return the proposed-but-not-yet-accepted settlement address, if any.
+    pub fn get_pending_settlement(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PendingSettlement)
     }
 
     // ── Heavy view proxies (issue #376) ───────────────────────────────────────
@@ -206,3 +243,6 @@ impl IntentPeriphery {
             .unwrap_or_else(|| panic_with_error!(env, Error::NotInitialized))
     }
 }
+
+#[cfg(test)]
+mod bench;

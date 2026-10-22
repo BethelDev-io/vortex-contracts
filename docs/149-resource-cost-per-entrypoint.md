@@ -185,3 +185,17 @@ the existing CEI structure in `accept_intent_inner`, `fill_intent_inner`, and
 ```
 cargo test --features testutils bench::resource_cost_report -- --nocapture
 ```
+
+---
+
+## Satellite contracts
+
+This file covers the `intent_settlement` entrypoints only. Resource-cost
+ceilings for the satellite contracts — including the five newest ones,
+`governor`, `backstop_vault`, `fee_router`, `treasury_streams`, and
+`intent_periphery` — are documented in
+[`docs/149-satellite-contracts.md`](./149-satellite-contracts.md), following
+the same table format and methodology used here. Regenerate those numbers with
+each satellite crate's own `bench` harness (e.g.
+`cargo test --features testutils bench::resource_cost_report -- --nocapture`
+inside the relevant crate directory).

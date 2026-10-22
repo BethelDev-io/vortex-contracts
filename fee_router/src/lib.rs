@@ -239,6 +239,9 @@ fn validate_sinks(sinks: &[Sink]) -> Result<(), FeeRouterError> {
 }
 
 #[cfg(test)]
+mod bench;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
