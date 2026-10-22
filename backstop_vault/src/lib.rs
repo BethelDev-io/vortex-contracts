@@ -481,8 +481,32 @@ impl BackstopVault {
         (total_assets, total_shares, rate)
     }
 
-    /// Returns (share_balance, queued_withdrawal_amount) for `lp`.
-    pub fn get_lp_position(env: Env, lp: Address) -> (i128, i128) {
+    /// Returns `(share_balance, queued_withdrawal_amount, withdraw_cooldown_until)`
+    /// for `lp`.
+    ///
+    /// `share_balance` is the LP's vault shares; `queued_withdrawal_amount` is
+    /// what is still queued for the LP from emergency-mode withdrawals; and
+    /// `withdraw_cooldown_until` is the earliest ledger timestamp at which the
+    /// LP's next `withdraw` call will be accepted.
+    ///
+    /// The cooldown timestamp is the value `withdraw` itself compares against
+    /// (`now < cooldown_until` → `Error::CooldownNotExpired`). Surfacing it
+    /// here means an LP or a dashboard can tell when a withdrawal becomes
+    /// possible without reading the contract's private storage key
+    /// `DataKey::WithdrawCooldown(lp)`.
+    ///
+    /// An LP that has never deposited has no cooldown entry, and the value
+    /// reported is `0` — the same default `withdraw` uses, i.e. "no cooldown".
+    ///
+    /// ## ABI change
+    ///
+    /// This view previously returned a 2-tuple `(share_balance,
+    /// queued_withdrawal_amount)`. The third element is **additive** in
+    /// meaning, but it does change the tuple's shape, so a client that
+    /// destructures the old 2-tuple needs updating to a 3-tuple. The contract
+    /// has no in-tree consumer of this view, and it has not been deployed to
+    /// mainnet, so there is no live consumer to migrate.
+    pub fn get_lp_position(env: Env, lp: Address) -> (i128, i128, u64) {
         let shares: i128 = env
             .storage()
             .persistent()
@@ -491,9 +515,14 @@ impl BackstopVault {
         let queued: i128 = env
             .storage()
             .persistent()
-            .get(&DataKey::WithdrawQueue(lp))
+            .get(&DataKey::WithdrawQueue(lp.clone()))
             .unwrap_or(0);
-        (shares, queued)
+        let cooldown_until: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::WithdrawCooldown(lp))
+            .unwrap_or(0);
+        (shares, queued, cooldown_until)
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────
