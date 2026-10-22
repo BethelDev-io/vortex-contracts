@@ -631,3 +631,6 @@ Current ecosystem tooling examples:
 
 <!-- handsoff-issue-569 -->
 - #569: [High] `Error::BatchSizeExceeded` (#239) was never added — batch entrypoints still reuse `Error::ZeroAmount` with a "no dedicated error" comment
+
+<!-- handsoff-issue-570 -->
+- #570: [High] `solver_registry` does not compile at all — its entire trailing block of TTL helper functions is duplicated outside the `impl` block, causing a syntax error
