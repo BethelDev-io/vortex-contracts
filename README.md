@@ -628,3 +628,6 @@ Current ecosystem tooling examples:
 
 <!-- handsoff-issue-564 -->
 - #564: [High] Operator session keys, delegated staking, sealed-bid auctions, and best-effort batch variants (#363–#366) are inert type scaffolding with zero functional implementat
+
+<!-- handsoff-issue-567 -->
+- #567: [High] 31 `Error` variant names, 17 `DataKey` variant names, and at least 3 struct fields are each declared twice in `intent_settlement/src/lib.rs` — plus ~38 discriminant 
