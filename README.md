@@ -628,3 +628,6 @@ Current ecosystem tooling examples:
 
 <!-- handsoff-issue-576 -->
 - #576: [High] CI on `main` has been red for approximately 11 weeks (~118 run attempts, only the earliest 10 ever passed), tracing back to a trivial formatting failure that was nev
+
+<!-- handsoff-issue-578 -->
+- #578: [High] `backstop_vault.deposit()` violates checks-effects-interactions — the token transfer happens before the share/asset storage writes
