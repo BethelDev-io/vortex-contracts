@@ -197,6 +197,101 @@ impl IntentPeriphery {
         )
     }
 
+    // ── Batched multi-view proxies (issue #534) ─────────────────────────────────
+    //
+    // These functions batch multiple cross-contract view calls into a single
+    // invocation, reducing RPC overhead for dashboards and indexers that need
+    // multiple views simultaneously. Each returns a tuple of raw `Val` results
+    // that the caller decodes using the core's published ABI.
+
+    /// Batch: `get_stats` + `get_protocol_health` in one call.
+    ///
+    /// Returns `(stats, health)` as a tuple of two `Val`s.
+    pub fn batch_get_stats_and_health(env: Env) -> (soroban_sdk::Val, soroban_sdk::Val) {
+        let settlement = Self::load_settlement(&env);
+        let stats = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_stats"),
+            Vec::new(&env),
+        );
+        let health = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_protocol_health"),
+            Vec::new(&env),
+        );
+        (stats, health)
+    }
+
+    /// Batch: `list_solvers` + `list_open_intents` in one call.
+    ///
+    /// Returns `(solvers, open_intents)` as a tuple of two `Val`s.
+    pub fn batch_list_solvers_and_intents(env: Env, start: u32, limit: u32) -> (soroban_sdk::Val, soroban_sdk::Val) {
+        let settlement = Self::load_settlement(&env);
+        let solvers = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "list_solvers"),
+            soroban_sdk::vec![&env, start.into(), limit.into()],
+        );
+        let intents = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "list_open_intents"),
+            soroban_sdk::vec![&env, start.into(), limit.into()],
+        );
+        (solvers, intents)
+    }
+
+    /// Batch: `get_solver` + `get_fee_schedule` for a specific solver.
+    ///
+    /// Returns `(solver_record, fee_schedule)` as a tuple of two `Val`s.
+    pub fn batch_get_solver_and_fee_schedule(env: Env, solver: Address) -> (soroban_sdk::Val, soroban_sdk::Val) {
+        let settlement = Self::load_settlement(&env);
+        let solver_record = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_solver"),
+            soroban_sdk::vec![&env, solver.into_val(&env)],
+        );
+        let fee_schedule = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_fee_schedule"),
+            soroban_sdk::vec![&env, solver.into_val(&env)],
+        );
+        (solver_record, fee_schedule)
+    }
+
+    /// Batch: `get_intent` + `get_protocol_health` in one call.
+    ///
+    /// Returns `(intent_record, health)` as a tuple of two `Val`s.
+    pub fn batch_get_intent_and_health(env: Env, intent_id: BytesN<32>) -> (soroban_sdk::Val, soroban_sdk::Val) {
+        let settlement = Self::load_settlement(&env);
+        let intent = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_intent"),
+            soroban_sdk::vec![&env, intent_id.into_val(&env)],
+        );
+        let health = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_protocol_health"),
+            Vec::new(&env),
+        );
+        (intent, health)
+    }
+
+    /// Generic batched view: call any two view functions on the settlement contract.
+    ///
+    /// Allows arbitrary composition of view calls. Returns `(result1, result2)`.
+    pub fn batch_two_views(
+        env: Env,
+        fn1: Symbol,
+        args1: Vec<soroban_sdk::Val>,
+        fn2: Symbol,
+        args2: Vec<soroban_sdk::Val>,
+    ) -> (soroban_sdk::Val, soroban_sdk::Val) {
+        let settlement = Self::load_settlement(&env);
+        let r1 = env.invoke_contract(&settlement, &fn1, args1);
+        let r2 = env.invoke_contract(&settlement, &fn2, args2);
+        (r1, r2)
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────────
 
     fn load_settlement(env: &Env) -> Address {
