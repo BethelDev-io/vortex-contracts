@@ -65,8 +65,10 @@ jobs:
           # Get list of changed files in this PR
           CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
 
-          # Check if any source files changed (intent_settlement/src/ or proof_registry/src/)
-          SOURCE_FILES_CHANGED=$(echo "$CHANGED_FILES" | grep -E '(intent_settlement/src/|proof_registry/src/)' || true)
+          # Check if any contract source files changed (any crate's src/ directory).
+          # Issue #510: widened from the original intent_settlement/proof_registry-only
+          # check to cover every contract crate added since issue #294 was closed.
+          SOURCE_FILES_CHANGED=$(echo "$CHANGED_FILES" | grep -E '(intent_settlement|proof_registry|solver_registry|backstop_vault|governor|treasury_streams|fee_router|timelock|intent_periphery|reputation_badge)/src/' || true)
 
           if [ -z "$SOURCE_FILES_CHANGED" ]; then
             echo "✓ No source files changed — changelog not required"
