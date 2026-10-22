@@ -13,6 +13,32 @@
 //! - Rounding dust from integer division is assigned to the first sink.
 //! - Fee-on-transfer tokens are supported: the router credits the amount it
 //!   actually received, not the amount the caller claimed to send.
+//! - Account identifiers are length-bounded ([`MAX_SINK_ACCOUNT_LEN`] and
+//!   [`MAX_GOVERNANCE_ACCOUNT_LEN`]) so that an unbounded `String` cannot be
+//!   written into the router's storage maps. See
+//!   "Identifier bounding and the Soroban rewrite" below.
+//!
+//! # Identifier bounding and the Soroban rewrite
+//!
+//! `Sink::account` and the router's `governance` account are currently plain
+//! `String`s, so today there is no structural limit on how long an identifier
+//! may be. That limit has to exist before this crate becomes a real Soroban
+//! contract: on-chain, every byte of a stored identifier is paid for in
+//! storage rent, and a governance proposal could otherwise write an
+//! arbitrarily large entry into `sinks` and `claimable`.
+//!
+//! This crate therefore bounds both identifiers *now*, with
+//! [`MAX_SINK_ACCOUNT_LEN`] and [`MAX_GOVERNANCE_ACCOUNT_LEN`], and rejects
+//! out-of-bounds identifiers with [`FeeRouterError::SinkAccountTooLong`] /
+//! [`FeeRouterError::GovernanceAccountTooLong`].
+//!
+//! The bound is a placeholder for the real fix, not a substitute for it.
+//! When `fee_router` is rewritten as an actual Soroban contract, sink
+//! identity should become a `soroban_sdk::Address`, which is *natively*
+//! bounded by the host (a `ScAddress` is at most 32 bytes of account id plus
+//! a 4-byte discriminant) and can be paid for exactly rather than
+//! approximately. The explicit length checks below should then be replaced by
+//! the `Address` type check, not kept alongside it.
 
 use std::collections::BTreeMap;
 
@@ -22,7 +48,28 @@ pub const TOTAL_BPS: u32 = 10_000;
 /// Maximum number of sinks the router will accept.
 pub const MAX_SINKS: usize = 16;
 
+/// Maximum length, in **bytes**, of a sink's account identifier.
+///
+/// The bound is checked against the UTF-8 byte length of the identifier, not
+/// its character count, because on-chain storage cost is metered in bytes.
+/// 64 bytes is enough for an ed25519 public key in hex (64 hex characters)
+/// with room to spare, and keeps the worst case for a full sink set
+/// (`MAX_SINKS` sinks) at 1 KiB.
+pub const MAX_SINK_ACCOUNT_LEN: usize = 64;
+
+/// Maximum length, in **bytes**, of the router's governance account
+/// identifier.
+///
+/// Same reasoning as [`MAX_SINK_ACCOUNT_LEN`]: the governance account is a
+/// single stored identifier, so it needs the same byte-length bound.
+pub const MAX_GOVERNANCE_ACCOUNT_LEN: usize = 64;
+
 /// A single revenue sink with its governance-set weight.
+///
+/// The `account` field must be at most [`MAX_SINK_ACCOUNT_LEN`] bytes long.
+/// Constructing a `Sink` directly does not enforce that; the router validates
+/// the bound through [`FeeRouter::new`] and [`FeeRouter::propose_weights`],
+/// which are the only ways a sink can enter the router's state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Sink {
     pub account: String,
@@ -44,6 +91,11 @@ pub enum FeeRouterError {
     WeightsMustSumToTotal,
     EmptySinks,
     DuplicateSink,
+    /// A sink's `account` identifier exceeded [`MAX_SINK_ACCOUNT_LEN`] bytes.
+    SinkAccountTooLong,
+    /// The governance account identifier exceeded
+    /// [`MAX_GOVERNANCE_ACCOUNT_LEN`] bytes.
+    GovernanceAccountTooLong,
     NoPendingWeights,
     TimelockNotElapsed,
     UnknownToken,
@@ -66,15 +118,20 @@ pub struct FeeRouter {
 
 impl FeeRouter {
     /// Create a new router. `sinks` must be non-empty, unique, at most
-    /// [`MAX_SINKS`], and sum to [`TOTAL_BPS`].
+    /// [`MAX_SINKS`], sum to [`TOTAL_BPS`], and carry account identifiers of
+    /// at most [`MAX_SINK_ACCOUNT_LEN`] bytes each.
+    ///
+    /// `governance` must be at most [`MAX_GOVERNANCE_ACCOUNT_LEN`] bytes.
     pub fn new(
         governance: impl Into<String>,
         weight_delay: u64,
         sinks: Vec<Sink>,
     ) -> Result<Self, FeeRouterError> {
+        let governance = governance.into();
+        validate_governance(&governance)?;
         validate_sinks(&sinks)?;
         Ok(Self {
-            governance: governance.into(),
+            governance,
             weight_delay,
             sinks,
             pending: None,
@@ -177,6 +234,10 @@ impl FeeRouter {
     }
 
     /// Propose a new set of sinks and weights. Only governance may call this.
+    ///
+    /// The proposed sinks are validated with the same rules as
+    /// [`FeeRouter::new`], so the [`MAX_SINK_ACCOUNT_LEN`] bound is re-checked
+    /// on every weight change and cannot be bypassed by proposing a new set.
     pub fn propose_weights(
         &mut self,
         caller: &str,
@@ -217,6 +278,23 @@ impl FeeRouter {
     }
 }
 
+/// Validate the governance account identifier's length.
+///
+/// Called from [`FeeRouter::new`]. The governance account is the only other
+/// account identifier the router stores, so it gets the same byte-length
+/// bound as a sink account.
+fn validate_governance(governance: &str) -> Result<(), FeeRouterError> {
+    if governance.len() > MAX_GOVERNANCE_ACCOUNT_LEN {
+        return Err(FeeRouterError::GovernanceAccountTooLong);
+    }
+    Ok(())
+}
+
+/// Validate a sink set: non-empty, bounded size, unique and bounded-length
+/// account identifiers, and weights summing to [`TOTAL_BPS`].
+///
+/// Called from [`FeeRouter::new`] and [`FeeRouter::propose_weights`], so the
+/// bound is re-checked every time governance tries to install a new sink set.
 fn validate_sinks(sinks: &[Sink]) -> Result<(), FeeRouterError> {
     if sinks.is_empty() {
         return Err(FeeRouterError::EmptySinks);
@@ -227,6 +305,9 @@ fn validate_sinks(sinks: &[Sink]) -> Result<(), FeeRouterError> {
     let mut seen = std::collections::BTreeSet::new();
     let mut sum: u32 = 0;
     for sink in sinks {
+        if sink.account.len() > MAX_SINK_ACCOUNT_LEN {
+            return Err(FeeRouterError::SinkAccountTooLong);
+        }
         if !seen.insert(sink.account.as_str()) {
             return Err(FeeRouterError::DuplicateSink);
         }
@@ -286,5 +367,118 @@ mod tests {
         assert_eq!(r.claim("treasury", "usd", |_, _, _| false).unwrap_err(), FeeRouterError::TransferFailed);
         assert_eq!(r.claimable("treasury", "usd"), before);
         assert_eq!(r.claim("treasury", "usd", |_, _, _| true).unwrap(), before);
+    }
+
+    // ---- Issue #536: account identifier length bounds ----
+
+    /// A sink account of exactly `MAX_SINK_ACCOUNT_LEN` bytes is accepted —
+    /// the bound is inclusive.
+    #[test]
+    fn sink_account_at_max_len_is_accepted() {
+        let account = "a".repeat(MAX_SINK_ACCOUNT_LEN);
+        assert_eq!(account.len(), MAX_SINK_ACCOUNT_LEN);
+        let sinks = vec![Sink {
+            account,
+            weight_bps: TOTAL_BPS,
+        }];
+        let r = FeeRouter::new("gov", 0, sinks).unwrap();
+        assert_eq!(r.sinks()[0].account.len(), MAX_SINK_ACCOUNT_LEN);
+    }
+
+    /// A sink account of `MAX_SINK_ACCOUNT_LEN + 1` bytes is rejected.
+    #[test]
+    fn sink_account_over_max_len_is_rejected() {
+        let account = "a".repeat(MAX_SINK_ACCOUNT_LEN + 1);
+        let sinks = vec![Sink {
+            account,
+            weight_bps: TOTAL_BPS,
+        }];
+        assert_eq!(
+            FeeRouter::new("gov", 0, sinks).unwrap_err(),
+            FeeRouterError::SinkAccountTooLong
+        );
+    }
+
+    /// The governance account is bounded by the same rule.
+    #[test]
+    fn governance_account_over_max_len_is_rejected() {
+        let governance = "g".repeat(MAX_GOVERNANCE_ACCOUNT_LEN + 1);
+        assert_eq!(
+            FeeRouter::new(governance, 0, sinks()).unwrap_err(),
+            FeeRouterError::GovernanceAccountTooLong
+        );
+    }
+
+    /// A governance account of exactly `MAX_GOVERNANCE_ACCOUNT_LEN` bytes is
+    /// accepted.
+    #[test]
+    fn governance_account_at_max_len_is_accepted() {
+        let governance = "g".repeat(MAX_GOVERNANCE_ACCOUNT_LEN);
+        assert!(FeeRouter::new(governance, 0, sinks()).is_ok());
+    }
+
+    /// The bound is re-checked when governance proposes a new sink set, so it
+    /// cannot be bypassed by routing an over-long identifier through
+    /// `propose_weights` / `apply_weights`.
+    #[test]
+    fn propose_weights_rejects_overlong_sink_account() {
+        let mut r = FeeRouter::new("gov", 0, sinks()).unwrap();
+        let account = "a".repeat(MAX_SINK_ACCOUNT_LEN + 1);
+        let bad = vec![Sink {
+            account,
+            weight_bps: TOTAL_BPS,
+        }];
+        assert_eq!(
+            r.propose_weights("gov", bad, 0).unwrap_err(),
+            FeeRouterError::SinkAccountTooLong
+        );
+        // The pending set must not have been installed.
+        assert!(r.pending_executable_at().is_none());
+        assert_eq!(r.sinks().len(), 3);
+    }
+
+    /// The length bound is checked while iterating the sinks, i.e. *before*
+    /// the weights are summed — an over-long identifier is reported as
+    /// `SinkAccountTooLong` even when the weights are also wrong.
+    #[test]
+    fn overlong_sink_account_is_reported_before_weight_sum() {
+        let account = "a".repeat(MAX_SINK_ACCOUNT_LEN + 1);
+        let sinks = vec![Sink {
+            account,
+            weight_bps: 1,
+        }];
+        assert_eq!(
+            FeeRouter::new("gov", 0, sinks).unwrap_err(),
+            FeeRouterError::SinkAccountTooLong
+        );
+    }
+
+    /// The bound is measured in **bytes**, not characters: a 64-byte
+    /// multi-byte identifier is accepted, and a 66-byte one is rejected even
+    /// though both are 33 characters long.
+    #[test]
+    fn sink_account_length_is_measured_in_bytes_not_characters() {
+        // "é" is two bytes in UTF-8, so 32 of them are 64 bytes.
+        let ok = "é".repeat(32);
+        assert_eq!(ok.chars().count(), 32);
+        assert_eq!(ok.len(), MAX_SINK_ACCOUNT_LEN);
+        let sinks = vec![Sink {
+            account: ok,
+            weight_bps: TOTAL_BPS,
+        }];
+        assert!(FeeRouter::new("gov", 0, sinks).is_ok());
+
+        // One more character is 66 bytes — over the bound.
+        let too_long = "é".repeat(33);
+        assert_eq!(too_long.chars().count(), 33);
+        assert_eq!(too_long.len(), MAX_SINK_ACCOUNT_LEN + 2);
+        let sinks = vec![Sink {
+            account: too_long,
+            weight_bps: TOTAL_BPS,
+        }];
+        assert_eq!(
+            FeeRouter::new("gov", 0, sinks).unwrap_err(),
+            FeeRouterError::SinkAccountTooLong
+        );
     }
 }
