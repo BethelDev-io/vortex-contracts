@@ -625,3 +625,6 @@ Current ecosystem tooling examples:
 - #400: [High] Add an interface-version handshake between cooperating contracts
 <!-- handsoff-issue-404 -->
 - #404: [High] Add on-chain rate-of-change guardrails to protocol parameters
+
+<!-- handsoff-issue-576 -->
+- #576: [High] CI on `main` has been red for approximately 11 weeks (~118 run attempts, only the earliest 10 ever passed), tracing back to a trivial formatting failure that was nev
