@@ -625,3 +625,6 @@ Current ecosystem tooling examples:
 - #400: [High] Add an interface-version handshake between cooperating contracts
 <!-- handsoff-issue-404 -->
 - #404: [High] Add on-chain rate-of-change guardrails to protocol parameters
+
+<!-- handsoff-issue-564 -->
+- #564: [High] Operator session keys, delegated staking, sealed-bid auctions, and best-effort batch variants (#363–#366) are inert type scaffolding with zero functional implementat
