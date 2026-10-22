@@ -27,3 +27,11 @@ soroban-sdk = { version = "21.0.0", features = ["testutils"] }
 
 [features]
 testutils = ["soroban-sdk/testutils"]
+
+# `cargo-fuzz` target for the manual byte-level payload/VAA parsers
+# (`receive_message`, chain-ID and amount decoding). Run with:
+#   cargo +nightly fuzz run proof_registry_parse
+# The target lives in `proof_registry/fuzz/` and is excluded from the
+# workspace so it does not affect `stellar contract build` (issue #563).
+[workspace]
+exclude = ["fuzz"]

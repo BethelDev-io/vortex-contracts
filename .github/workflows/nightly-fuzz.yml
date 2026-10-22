@@ -81,3 +81,51 @@ jobs:
             intent_settlement/.proptest-regressions
             intent_settlement/proptest-regressions/
           retention-days: 30
+
+  proof-registry-fuzz:
+    name: proof_registry cargo-fuzz run
+    runs-on: ubuntu-latest
+    # Advisory: scheduled fuzzing should not block PRs. If a crash is found,
+    # the scheduled run fails visibly but does not affect PR merges.
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: proof_registry
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: proof_registry
+          key: nightly-fuzz-proof-registry
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run proof_registry fuzz target
+        # FUZZ_MAX_TOTAL_TIME bounds the nightly run (seconds). The target feeds
+        # arbitrary bytes into proof_registry's manual VAA/payload byte parsers
+        # (receive_message, chain-ID and amount decoding) and asserts they never
+        # panic, only returning a well-formed Result/error.
+        env:
+          FUZZ_MAX_TOTAL_TIME: 600
+        run: |
+          echo "### proof_registry cargo-fuzz Run" >> "$GITHUB_STEP_SUMMARY"
+          echo "Running fuzz target for ${FUZZ_MAX_TOTAL_TIME}s" >> "$GITHUB_STEP_SUMMARY"
+          if cargo fuzz run parse_payload -- -max_total_time="$FUZZ_MAX_TOTAL_TIME" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"; then
+            echo "✅ proof_registry fuzz target passed" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ proof_registry fuzz target failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-registry-fuzz-artifacts-${{ github.run_id }}
+          path: |
+            proof_registry/fuzz/artifacts/
+            proof_registry/fuzz/corpus/
+          retention-days: 30
