@@ -67,7 +67,6 @@ backstop_vault/Cargo.lock
 # Uncomment to ignore: #Cargo.lock
 
 # Cargo generated lock files in sub-crates (root Cargo.lock is tracked)
-intent_periphery/Cargo.lock
 examples/policy_daily_cap/Cargo.lock
 
 # Coverage / profiling artifacts
