@@ -11,6 +11,19 @@ first deploys to mainnet.
 
 ### Added
 
+- **Generated "Error Reference" table in `README.md` (issue #531).**
+  `scripts/generate-error-reference.py` parses the `Error` enum out of
+  `intent_settlement/src/lib.rs` and renders a row for **every** declaration
+  (127 variants, 95 distinct names) with its discriminant, the contract entry
+  points that can surface it and the variant's own rustdoc. The old
+  hand-written table had 36 rows while claiming to list every variant. The
+  script also reports the declaration collisions the enum contains (32 names
+  declared more than once, 38 reused discriminants) and the 8 variants the
+  code raises but the enum never declares. Run
+  `python3 scripts/generate-error-reference.py --check` to verify the README
+  is still in sync, or `--write` to regenerate it; `make error-reference-check`
+  and `just error-reference-check` wrap the same command. Unit tests for the
+  generator live in `scripts/tests/test_generate_error_reference.py`.
 - **CI: Enforce CHANGELOG.md updates (issue #294).** A new CI job verifies that
   every PR changing `intent_settlement/src/` or `proof_registry/src/` includes a
   corresponding update to `CHANGELOG.md`. An escape hatch (`no-changelog-needed`

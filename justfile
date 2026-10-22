@@ -47,6 +47,14 @@ build:
 audit:
     cd {{workspace}} && cargo audit
 
+# Regenerate README.md's Error Reference table from the Error enum (issue #531)
+error-reference:
+    python3 scripts/generate-error-reference.py --write
+
+# Verify README.md's Error Reference table matches the Error enum (issue #531)
+error-reference-check:
+    python3 scripts/generate-error-reference.py --check
+
 # Remove build artefacts
 clean:
     cd {{workspace}} && cargo clean

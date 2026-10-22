@@ -20,6 +20,10 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 
+# Python bytecode (scripts/generate-error-reference.py and its tests)
+__pycache__/
+*.py[cod]
+
 # Editor / IDE
 .DS_Store
 .idea/

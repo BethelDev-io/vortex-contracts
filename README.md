@@ -287,47 +287,281 @@ stateDiagram-v2
 
 #### Error Reference
 
-The table below maps every `Error` variant to the function(s) that raise it and
-the exact condition that triggers it.
+Every `Error` variant that `intent_settlement` can raise is listed below.
+The table is generated from the enum in `intent_settlement/src/lib.rs` by
+[`scripts/generate-error-reference.py`](../scripts/generate-error-reference.py)
+so that it cannot drift from the source.
 
-| # | Variant | Raised by | Condition |
-|---|---------|-----------|-----------|
-| 1 | `AlreadyInitialized` | `initialize` | `DataKey::Admin` already exists in instance storage |
-| 2 | `Unauthorized` | `fill_intent`, `cancel_intent` | Caller is not the assigned solver / intent owner |
-| 3 | `IntentNotFound` | `accept_intent`, `fill_intent`, `cancel_intent`, `slash_solver`, `expire_intent` | No `IntentRecord` found for the supplied `intent_id` |
-| 4 | `IntentNotOpen` | `cancel_intent`, `expire_intent` | Intent state is not `Open` |
-| 5 | `IntentExpired` | `accept_intent` | `now >= intent.deadline` when a solver tries to accept |
-| 6 | `IntentNotAccepted` | `fill_intent`, `slash_solver` | Intent state is not `Accepted` |
-| 7 | `SolverNotRegistered` | `accept_intent`, `deregister_solver`, `withdraw_bond` | No `SolverRecord` found for the address |
-| 8 | `SolverBondTooLow` | `register_solver`, `withdraw_bond` | Resulting bond total < `MIN_BOND` (50 USDC) |
-| 9 | `InsufficientOutput` | `fill_intent` | `fill_amount < intent.min_dst_amount` |
-| 10 | `FillWindowExpired` | `fill_intent` | `now >= intent.deadline` (fill window elapsed); also used in `slash_solver` as an inverse guard (window not yet expired) |
-| 11 | `CannotCancelAccepted` | `cancel_intent` | Intent state is `Accepted` |
-| 12 | `SolverInactive` | `accept_intent` | `solver_record.is_active == false` |
-| 13 | `ZeroAmount` | `submit_intent`, `register_solver`, `withdraw_bond` | `src_amount ≤ 0`, `min_dst_amount ≤ 0`, or `bond_amount ≤ 0` |
-| 14 | `InvalidDeadline` | `submit_intent` | Supplied `deadline ≤ env.ledger().timestamp()` |
-| 15 | `IntentAlreadyFilled` | `fill_intent` | Intent state is `Filled` |
-| 16 | `NotInitialized` | `propose_fee_recipient`, `propose_admin_transfer`, `require_admin` | `DataKey::Admin` absent (contract not initialized) |
-| 17 | `SolverHasActiveIntents` | `deregister_solver` | `solver_record.active_intents > 0` |
-| 18 | `ContractPaused` | `submit_intent`, `accept_intent`, `fill_intent` (via `require_not_paused`) | `DataKey::Paused` is `true` |
-| 19 | `DeadlineNotReached` | `expire_intent` | `now < intent.deadline` |
-| 20 | `InsufficientBond` | `withdraw_bond` | Requested withdrawal `amount > solver_record.bond_amount` |
-| 21 | `DstTokenNotAllowed` | `submit_intent` | `DstAllowlistEnabled` is `true` and `dst_token` is not in the `AllowedDstToken` list |
-| 22 | `IntentAlreadyExists` | `submit_intent` | Hash collision: an intent with this `intent_id` was already submitted |
-| 23 | `FeeOverflow` | `fill_intent` | Fee arithmetic overflowed (fill amount astronomically large) |
-| 24 | `InvalidTokenInterface` | `add_allowed_dst_token` | Token address does not implement SEP-41 |
-| 25 | `NoPendingFeeRecipient` | `accept_fee_recipient` | No prior `propose_fee_recipient` on record |
-| 26 | `SrcChainNotAllowed` | `submit_intent` | `SrcChainAllowlistEnabled` is `true` and `src_chain` is not in the allowlist |
-| 27 | `RescueProtectedToken` | `rescue_tokens` | Token is the bond token or an active intent's dst_token |
-| 28 | `InvalidSrcToken` | `submit_intent` | `src_token` format does not match the declared `src_chain`'s conventions |
-| 29 | `BatchSizeExceeded` | `batch_submit_intent`, `batch_accept_intent` | Batch size exceeds `MAX_BATCH_SIZE` |
-| 30 | `ExtensionAlreadyGranted` | `request_extension` | Intent has already used its one-time extension |
-| 31 | `InvalidConfig` | `set_config` | Invalid protocol configuration parameters |
-| 32 | `TimelockNotElapsed` | `accept_fee_recipient`, `accept_admin_transfer`, `execute_add_dst_token`, `execute_remove_dst_token` | Called before the `#115` timelock delay since the matching `propose_*` call has elapsed |
-| 33 | `NoPendingAdminTransfer` | `accept_admin_transfer` | No prior `propose_admin_transfer` on record |
-| 34 | `NoPendingDstTokenChange` | `execute_add_dst_token`, `execute_remove_dst_token` | No matching pending proposal for the given token |
-| 35 | `CancelCooldownNotExpired` | `cancel_intent` | Cannot cancel an Accepted intent whose solver was recently slashed (cooldown active) |
-| 36 | `AmountTooLarge` | `submit_intent` | Numeric input (e.g. `src_amount`) is too large to safely handle |
+<!-- BEGIN GENERATED: error-reference -->
+
+This table is **generated** from `intent_settlement/src/lib.rs` by
+[`scripts/generate-error-reference.py`](../scripts/generate-error-reference.py)
+ — run `python3 scripts/generate-error-reference.py --check` to
+verify it is still in sync with the enum.
+
+The `Error` enum declares **127 variants**
+(**95 distinct names**). Every declaration gets its own
+row below, in the order the enum declares them; the `Code` column
+is the on-chain discriminant. The `Condition` column is the
+variant's own rustdoc, so the README and the source cannot
+disagree about what a variant means.
+
+`Raised by` lists the contract entry points that can surface the error —
+including the ones that only reach it through an internal
+helper. It is derived from a call graph of the contract, not from
+a hand-written list. A `—` means the variant is declared but
+never raised anywhere in `intent_settlement/src/lib.rs`.
+
+| # | Variant | Code | Raised by | Condition |
+|---|---------|------|-----------|-----------|
+| 1 | `AlreadyInitialized` | 1 | `initialize` | `initialize` was called on a contract that already has an `Admin` key in instance storage. Raised exclusively by `initialize`. |
+| 2 | `Unauthorized` | 2 | `accept_admin_transfer`, `accept_fee_recipient`, `amend_intent`, `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `cancel_intent`, `dispute_fill`, `execute_upgrade`, `fill_intent`, `get_solver_intents`, `open_dispute`, `pause`, `release_fill`, `request_extension`, `resolve_dispute` | A privileged operation was attempted by a caller who is not the required authority. Raised by `fill_intent` when the caller is not the solver that accepted the intent, and by `cancel_intent` when the caller is not the intent's owner. |
+| 3 | `IntentNotFound` | 3 | `accept_intent`, `accept_intent_with_bond`, `amend_intent`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `bid_intent`, `cancel_intent`, `claim_backstop_compensation`, `close_intent`, `current_min_dst`, `dispute_fill`, `expire_intent`, `fill_intent`, `get_solver_intents`, `open_dispute`, `release_fill`, `request_extension`, `resolve_dispute`, `settle_bids`, `slash_solver` | The supplied `intent_id` has no corresponding `IntentRecord` in persistent storage. Raised by `accept_intent`, `fill_intent`, `cancel_intent`, `slash_solver`, and `expire_intent`. |
+| 4 | `IntentNotOpen` | 4 | `accept_intent`, `accept_intent_with_bond`, `accept_outbound_intent`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `cancel_intent`, `expire_intent`, `fill_intent`, `release_fill`, `resolve_dispute` | The intent's `state` is not `Open` at a point where `Open` is required. Raised by `cancel_intent` (non-`Open`/non-`Accepted` guard) and by `expire_intent` (which only operates on `Open` intents). |
+| 5 | `IntentExpired` | 5 | `accept_intent`, `accept_intent_with_bond`, `accept_outbound_intent`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent` | The current ledger timestamp has reached or passed the intent's `deadline` when a solver tries to accept it via `accept_intent`. The intent's state is lazily updated to `Expired` before the panic. |
+| 6 | `IntentNotAccepted` | 6 | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `claim_backstop_compensation`, `fill_intent`, `get_solver_intents`, `release_fill`, `request_extension`, `resolve_dispute`, `slash_solver` | `fill_intent` or `slash_solver` requires the intent to be in state `Accepted`, but it is in a different terminal or intermediate state. Also raised by `slash_solver` when `intent.state != Accepted`. |
+| 7 | `SolverNotRegistered` | 7 | `accept_intent`, `accept_intent_with_bond`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `deregister_solver`, `fill_intent`, `withdraw_bond`, `withdraw_bond_token` | An operation that requires a registered solver (e.g. `deregister_solver`, `withdraw_bond`, `accept_intent`) was called for an address that has no `SolverRecord` in persistent storage. |
+| 8 | `SolverBondTooLow` | 8 | `accept_intent`, `accept_intent_with_bond`, `accept_outbound_intent`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `register_solver`, `register_solver_with_token`, `withdraw_bond`, `withdraw_bond_token` | `register_solver` was called with a `bond_amount` that, when added to any existing bond, does not reach `MIN_BOND` (500_000_000 stroops / 50 USDC). Also raised by `withdraw_bond` when the post-withdrawal balance would fall below `MIN_BOND`. |
+| 9 | `InsufficientOutput` | 9 | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | `fill_intent` was called with a `fill_amount` less than the intent's `min_dst_amount`. Raised only in `fill_intent`. |
+| 10 | `FillWindowExpired` | 10 | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `get_solver_intents`, `release_fill`, `resolve_dispute`, `slash_solver` | `fill_intent` was called after the intent's `deadline` (i.e. the fill window that starts when the solver calls `accept_intent` and lasts `FILL_WINDOW` seconds) has already elapsed. Also (confusingly) used in `slash_solver` as a guard label when the fill window has *not yet* expired — the intent cannot be slashed before its deadline. |
+| 11 | `CannotCancelAccepted` | 11 | `batch_cancel_intent`, `batch_fill_intent`, `cancel_intent`, `fill_intent` | `cancel_intent` was called on an intent in state `Accepted`. Users may only cancel `Open` intents; once a solver has accepted, the `slash_solver` path must be used if the solver fails to fill. |
+| 12 | `SolverInactive` | 12 | `accept_intent`, `accept_intent_with_bond`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `bid_intent`, `fill_intent`, `release_fill`, `resolve_dispute` | `accept_intent` was called for a solver whose `is_active` flag is `false` (set when the bond falls below `MIN_BOND` after a slash, or after calling `deregister_solver`). |
+| 13 | `ZeroAmount` | 13 | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `begin_fill`, `bid_intent`, `fill_intent`, `register_solver`, `register_solver_with_token`, `release_fill`, `rescue_tokens`, `resolve_dispute`, `set_bond_token_min`, `set_min_bond_multiplier`, `submit_intent`, `submit_outbound_intent`, `withdraw_bond`, `withdraw_bond_token` | A numeric input that must be strictly positive was zero or negative. Raised by `submit_intent` (`src_amount` or `min_dst_amount ≤ 0`) and by `register_solver` / `withdraw_bond` (`bond_amount ≤ 0`). |
+| 14 | `InvalidDeadline` | 14 | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent`, `submit_intent`, `submit_outbound_intent` | `submit_intent` was called with a `deadline` that is already in the past (i.e. `deadline ≤ env.ledger().timestamp()`). |
+| 15 | `IntentAlreadyFilled` | 15 | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `get_solver_intents` | `fill_intent` was called on an intent that is already in state `Filled`. |
+| 16 | `NotInitialized` | 16 | `accept_intent`, `accept_intent_with_bond`, `add_allowed_bond_token`, `add_allowed_src_chain`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `begin_fill`, `cancel_pending_dst_token_add`, `cancel_pending_dst_token_remove`, `claim_backstop_compensation`, `deregister_solver`, `execute_chain_offboarding`, `execute_chain_onboarding`, `execute_set_policy`, `execute_upgrade`, `fill_intent`, `get_arbiter`, `get_bond_token_min`, `get_solver_bond`, `get_solver_bonds`, `get_solver_intents`, `is_allowed_bond_token`, `migrate`, `pause`, `propose_add_dst_token`, `propose_admin_transfer`, `propose_chain_onboarding`, `propose_fee_recipient`, `propose_oracle`, `propose_remove_dst_token`, `propose_set_policy`, `propose_upgrade`, `register_solver`, `register_solver_with_token`, `release_fill`, `remove_allowed_bond_token`, `remove_allowed_src_chain`, `rescue_tokens`, `resolve_dispute`, `set_arbiter`, `set_bid_window_enabled`, `set_bond_token_min`, `set_config`, `set_dst_allowlist_enabled`, `set_intent_retention`, `set_min_bond_multiplier`, `set_pauser`, `set_proof_registry`, `set_src_chain_allowlist_enabled`, `settle_bids`, `slash_solver`, `submit_intent`, `submit_outbound_intent`, `unpause`, `withdraw_bond`, `withdraw_bond_token` | An operation that requires the contract to be initialized (i.e. needs `Admin` in instance storage) was called before `initialize`. Raised by `require_admin` and by `propose_fee_recipient` / `propose_admin_transfer`. |
+| 17 | `SolverHasActiveIntents` | 17 | `deregister_solver`, `withdraw_bond`, `withdraw_bond_token` | `deregister_solver` was called while the solver's `active_intents` counter is greater than zero, meaning at least one intent is currently in state `Accepted` by this solver. The solver must wait for those intents to reach a terminal state first. |
+| 18 | `ContractPaused` | 18 | `accept_intent`, `accept_intent_with_bond`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `begin_fill`, `bid_intent`, `deregister_solver`, `fill_intent`, `get_solver_intents`, `register_solver`, `register_solver_with_token`, `release_fill`, `resolve_dispute`, `submit_intent`, `submit_intent_signed`, `withdraw_bond`, `withdraw_bond_token` | `submit_intent`, `accept_intent`, or `fill_intent` was called while the contract's `Paused` flag is `true`. Raised by `require_not_paused`. |
+| 19 | `DeadlineNotReached` | 19 | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `expire_intent`, `fill_intent`, `release_fill`, `resolve_dispute` | `expire_intent` was called before the intent's `deadline` has been reached (i.e. `env.ledger().timestamp() < intent.deadline`). |
+| 20 | `InsufficientBond` | 20 | `withdraw_bond`, `withdraw_bond_token` | `withdraw_bond` was called with an `amount` greater than the solver's current `bond_amount`. |
+| 21 | `DstTokenNotAllowed` | 21 | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent`, `submit_intent` | `submit_intent` was called with a `dst_token` that is not present in the `AllowedDstToken` allowlist while `DstAllowlistEnabled` is `true`. |
+| 22 | `IntentAlreadyExists` | 22 | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent`, `submit_intent`, `submit_outbound_intent` | Duplicate `intent_id` detected in `submit_intent` (hash collision guard). |
+| 23 | `FeeOverflow` | 23 | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | #31: fee arithmetic overflowed (fill_amount is astronomically large) |
+| 24 | `InvalidTokenInterface` | 24 | — | #33: the address passed to `propose_add_dst_token` doesn't implement SEP-41 |
+| 25 | `NoPendingFeeRecipient` | 25 | `accept_fee_recipient`, `cancel_pending_fee_recipient` | #30: `accept_fee_recipient` was called with no pending fee-recipient proposal in storage. |
+| 26 | `SrcChainNotAllowed` | 26 | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent`, `submit_intent` | #34: `submit_intent` was called with a `src_chain` that is not on the allowlist while `SrcChainAllowlistEnabled` is `true`. |
+| 27 | `RescueProtectedToken` | 27 | `rescue_tokens` | #35: `rescue_tokens` was called for the bond token, which the rescue path is not allowed to move. |
+| 28 | `InvalidSrcToken` | 28 | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent`, `get_solver_intents`, `submit_intent` | #127: `submit_intent` was called with a `src_token` whose format does not match the conventions of the declared `src_chain`. EVM chains (ethereum, base, polygon, arbitrum, optimism): expect a `0x`-prefixed 42-character hex string (e.g. `"0xA0b86991…"`). Solana: expects a base58 string between 32 and 44 characters long with no `0x` prefix. If `src_chain` is unknown this error is never raised — unknown chains bypass token-format validation so the allowlist remains the sole gate. |
+| 29 | `ProofRegistryNotSet` | 30 | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `get_solver_intents` | docs/129 §2.4 (code 24). `fill_intent` was called with `require_proof = true` but no `DataKey::ProofRegistry` has been set by the admin. Configuration error — no slash, intent stays `Accepted`. |
+| 30 | `ProofNotFound` | 31 | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `get_solver_intents` | docs/129 §2.3 (code 25). `ProofRegistry.get_proof(intent_id)` returned `None`: no verified source-chain deposit for this intent yet. Intent stays `Accepted`; the solver should retry once the VAA is relayed, or be slashed if the fill window elapses first. |
+| 31 | `ProofChainMismatch` | 32 | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `get_solver_intents` | docs/129 §2.2 (code 26). The proof's `src_chain_id` does not equal the Wormhole chain ID mapped from `intent.src_chain`. Hard reject; intent stays `Accepted`. |
+| 32 | `ProofAmountInsufficient` | 33 | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `get_solver_intents` | docs/129 §2.1 (code 27). `proof.src_amount < intent.src_amount` — the source deposit was smaller than the intent requires. Hard reject; intent stays `Accepted` so the solver can supply a corrected VAA or be slashed at deadline. |
+| 33 | `SrcChainNotSupported` | 34 | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `get_solver_intents`, `src_chain_to_wormhole_id` | docs/129 §4. `intent.src_chain` is not in the canonical chain-name → Wormhole-chain-ID table, so the proof's chain cannot be validated against it. |
+| 34 | `SelfReferral` | 35 | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent`, `submit_intent` | #281: `submit_intent` was called with a `referrer` equal to the submitting `user`. Self-referral is rejected to prevent a user from gaming the referral programme by naming their own address. |
+| 35 | `InvalidConfig` ⚠ | 36 ⚠ | `set_config` | `set_config` received an invalid parameter value. |
+| 36 | `TimelockNotElapsed` ⚠ | 37 ⚠ | `accept_admin_transfer`, `accept_fee_recipient`, `execute_add_dst_token`, `execute_chain_onboarding`, `execute_remove_dst_token`, `execute_set_policy`, `execute_upgrade` | The timelock delay since the matching `propose_*` call has not elapsed. |
+| 37 | `NoPendingAdminTransfer` ⚠ | 38 ⚠ | `accept_admin_transfer` | `accept_admin_transfer` called with no pending proposal. |
+| 38 | `NoPendingDstTokenChange` ⚠ | 39 ⚠ | `cancel_pending_dst_token_add`, `cancel_pending_dst_token_remove`, `execute_add_dst_token`, `execute_remove_dst_token` | `execute_add_dst_token` / `execute_remove_dst_token` with no proposal. |
+| 39 | `CancelCooldownNotExpired` ⚠ | 40 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `cancel_intent`, `fill_intent` | `cancel_intent` rate-limit cooldown not yet expired. |
+| 40 | `AmountTooLarge` ⚠ | 41 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent`, `submit_intent`, `submit_outbound_intent` | `src_amount` or `min_dst_amount` exceeds the MAX_AMOUNT safety ceiling. |
+| 41 | `ImplausibleDstAmount` ⚠ | 42 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent`, `submit_intent` | `min_dst_amount` is implausible given the dst_token's declared decimals. |
+| 42 | `MaxActiveIntentsCapReached` ⚠ | 43 ⚠ | `accept_intent`, `accept_intent_with_bond`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent` | Solver's active-intent count is at the configured cap. |
+| 43 | `BondTokenNotAllowed` ⚠ | 44 ⚠ | `accept_intent`, `accept_intent_with_bond`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `register_solver`, `register_solver_with_token` | Bond token is not on the allowed-token set. |
+| 44 | `ExtensionAlreadyGranted` ⚠ | 45 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `request_extension` | `request_extension` already used for this intent. |
+| 45 | `ExtensionCapExceeded` ⚠ | 46 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `request_extension` | Withdrawal would leave the solver under-covered. |
+| 46 | `AlreadyMigrated` ⚠ | 47 ⚠ | `migrate` | `migrate` called on a contract already at the current schema version. |
+| 47 | `BidWindowClosed` ⚠ | 48 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `bid_intent`, `fill_intent`, `release_fill`, `resolve_dispute` | Bid-window closed — cannot accept new bids. |
+| 48 | `BidWindowStillOpen` ⚠ | 49 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute`, `settle_bids` | `settle_bids` called while bid window is still open. |
+| 49 | `BidNotHigher` ⚠ | 50 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `bid_intent`, `fill_intent`, `release_fill`, `resolve_dispute` | Submitted bid does not improve on the current best. |
+| 50 | `IntentNotBidding` ⚠ | 51 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `bid_intent`, `fill_intent`, `release_fill`, `resolve_dispute`, `settle_bids` | Intent is not in Bidding state. |
+| 51 | `IntentNotFilling` ⚠ | 52 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `dispute_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Intent is not in Filling state. |
+| 52 | `IntentNotDisputed` ⚠ | 53 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Intent is not in Disputed state. |
+| 53 | `NotArbiter` ⚠ | 54 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Caller is not the arbiter. |
+| 54 | `ArbiterWindowExpired` ⚠ | 55 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Arbiter resolution window has elapsed. |
+| 55 | `DisputeWindowStillOpen` ⚠ | 56 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Dispute window is still open — cannot release fill yet. |
+| 56 | `DisputeWindowExpired` ⚠ | 57 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `open_dispute`, `release_fill`, `resolve_dispute` | Dispute window has already expired — cannot raise a dispute. |
+| 57 | `DisputeWindowClosed` ⚠ | 58 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `dispute_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | The dispute window has closed with no dispute. |
+| 58 | `NoFillEscrowed` ⚠ | 59 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `open_dispute`, `release_fill`, `resolve_dispute` | No fill is currently held in escrow for this intent. |
+| 59 | `NoPendingUpgrade` ⚠ | 60 ⚠ | `execute_upgrade` | No pending contract upgrade to execute. |
+| 60 | `IntentNotAcceptedForFill` ⚠ | 61 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | `fill_intent` called on a non-Accepted intent (different message path). |
+| 61 | `TooManyBondTokens` ⚠ | 62 ⚠ | `register_solver`, `register_solver_with_token` | Solver has too many bond tokens. |
+| 62 | `TooManyRouteEntries` ⚠ | 63 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `get_solver_intents`, `set_solver_routes` | Solver has too many route entries. |
+| 63 | `BatchTooLarge` ⚠ | 64 ⚠ | `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent` | `batch_*` called with more than MAX_BATCH_SIZE items. |
+| 64 | `NoDisputeOpen` ⚠ | 65 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `open_dispute`, `release_fill`, `resolve_dispute` | No dispute is currently open for this intent. |
+| 65 | `BackstopPoolEmpty` ⚠ | 66 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `claim_backstop_compensation`, `fill_intent` | Backstop pool is empty — nothing to pay out. |
+| 66 | `BackstopAlreadyClaimed` ⚠ | 67 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `claim_backstop_compensation`, `fill_intent` | User already claimed backstop compensation for this intent. |
+| 67 | `ExposureExceeded` | 68 ⚠ | `accept_intent`, `accept_intent_with_bond`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent` | Accepting this intent would exceed the solver's coverage capacity. |
+| 68 | `OraclePriceStale` | 69 ⚠ | — | Oracle price data is stale (too old). |
+| 69 | `OraclePriceInvalid` | 70 ⚠ | — | Oracle returned a zero or invalid price. |
+| 70 | `OracleNotConfigured` | 71 ⚠ | — | No oracle has been configured. |
+| 71 | `OracleTimelockNotElapsed` | 72 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `execute_oracle`, `fill_intent` | Oracle timelock has not elapsed for the pending proposal. |
+| 72 | `NoPendingOracle` | 73 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `execute_oracle`, `fill_intent` | No pending oracle proposal. |
+| 73 | `IntentNotTerminal` | 36 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `close_intent`, `fill_intent` | #371: `close_intent` was called on an intent that is not in a terminal state (Filled, Cancelled, Expired, Resolved, Slashed). |
+| 74 | `RetentionPeriodNotElapsed` | 37 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `close_intent`, `fill_intent` | #371: `close_intent` was called before the configured retention period after the intent's terminal timestamp has elapsed. |
+| 75 | `PolicyRejected` | 38 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent`, `get_solver_intents`, `submit_intent` | #378: The configured policy contract rejected this intent submission. Raised by `check_policy` when `check_intent` returns `false`. |
+| 76 | `NoPendingPolicy` | 39 ⚠ | `execute_set_policy` | #378: `execute_set_policy` was called with no pending proposal in storage. |
+| 77 | `OperatorNotAuthorized` | 40 ⚠ | — | Issue #363: Operator key has expired or has insufficient permissions/balance |
+| 78 | `OperatorLimitExceeded` | 41 ⚠ | — | Issue #363: Attempted operation exceeds operator's per-intent limit |
+| 79 | `InvalidDelegateAmount` | 42 ⚠ | — | Issue #364: Delegated stake amount is too small or invalid |
+| 80 | `InsufficientDelegatedShares` | 43 ⚠ | — | Issue #364: Delegator has insufficient delegated shares to undelegate |
+| 81 | `UnbondingInProgress` | 44 ⚠ | — | Issue #364: Unbonding delay has not elapsed for undelegation |
+| 82 | `InvalidBidCommitment` | 45 ⚠ | — | Issue #365: Bid commitment is invalid or has expired |
+| 83 | `BidRevealMismatch` | 46 ⚠ | — | Issue #365: Bid reveal does not match committed hash |
+| 84 | `RevealWindowClosed` | 47 ⚠ | — | Issue #365: Reveal window has closed |
+| 85 | `BatchProcessingError` | 48 ⚠ | — | Issue #366: Best-effort batch operation with per-item results |
+| 86 | `ExclusivityViolation` | 49 ⚠ | — | Issue #360: `accept_intent` or `batch_accept_intent` was called for an intent with an `exclusive_solver` that is not the calling solver, and the exclusivity window has not yet expired. |
+| 87 | `InvalidDecayConfig` | 50 ⚠ | — | Issue #359: `accept_intent` was called with a decay configuration where `start_dst_amount < min_dst_amount` or decay times are invalid. |
+| 88 | `SignatureInvalid` | 51 ⚠ | — | Issue #361: `submit_intent_signed` was called with a signature that failed ed25519 verification or a nonce that was already consumed. |
+| 89 | `SignatureExpired` | 52 ⚠ | — | Issue #361: `submit_intent_signed` was called with an expiry timestamp that is already in the past. |
+| 90 | `DepositFailed` | 53 ⚠ | — | Issue #362: `submit_intent` was called but the user's deposit transfer failed (insufficient balance or token allowance). |
+| 91 | `IntentNotTerminalWithdraw` | 54 ⚠ | — | Issue #362: `withdraw_deposit` was called for an intent that is not in a terminal state (Filled, Cancelled, Expired, Slashed, Resolved). |
+| 92 | `DisputeWindowExpired` ⚠ | 55 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `open_dispute`, `release_fill`, `resolve_dispute` | Dispute window has expired; no longer possible to contest a fill. |
+| 93 | `DisputeWindowStillOpen` ⚠ | 56 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Dispute window has not yet opened; too early to contest. |
+| 94 | `DisputeWindowClosed` ⚠ | 57 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `dispute_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Dispute window has closed; no longer possible to open a dispute. |
+| 95 | `NoDisputeOpen` ⚠ | 58 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `open_dispute`, `release_fill`, `resolve_dispute` | No dispute is currently open for this intent. |
+| 96 | `NoFillEscrowed` ⚠ | 59 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `open_dispute`, `release_fill`, `resolve_dispute` | No fill escrow exists to release. |
+| 97 | `TimelockNotElapsed` ⚠ | 60 ⚠ | `accept_admin_transfer`, `accept_fee_recipient`, `execute_add_dst_token`, `execute_chain_onboarding`, `execute_remove_dst_token`, `execute_set_policy`, `execute_upgrade` | Arbiter timeout has not yet elapsed; slash not yet available. |
+| 98 | `BidWindowClosed` ⚠ | 61 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `bid_intent`, `fill_intent`, `release_fill`, `resolve_dispute` | Bid window has closed; no longer accepting bids. |
+| 99 | `BidWindowStillOpen` ⚠ | 62 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute`, `settle_bids` | Bid window has not yet opened. |
+| 100 | `IntentNotBidding` ⚠ | 63 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `bid_intent`, `fill_intent`, `release_fill`, `resolve_dispute`, `settle_bids` | Intent is not in bidding state. |
+| 101 | `BidNotHigher` ⚠ | 64 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `bid_intent`, `fill_intent`, `release_fill`, `resolve_dispute` | Submitted bid is not higher than current best bid. |
+| 102 | `IntentNotFilling` ⚠ | 65 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `dispute_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Intent is not in filling state for this operation. |
+| 103 | `AmountTooLarge` ⚠ | 66 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent`, `submit_intent`, `submit_outbound_intent` | Amount exceeds maximum allowed value. |
+| 104 | `IntentNotDisputed` ⚠ | 67 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Intent is not in disputed state for this operation. |
+| 105 | `InvalidConfig` ⚠ | 68 ⚠ | `set_config` | Invalid protocol configuration. |
+| 106 | `ArbiterWindowExpired` ⚠ | 69 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Arbiter window has expired; dispute resolution window closed. |
+| 107 | `BackstopPoolEmpty` ⚠ | 70 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `claim_backstop_compensation`, `fill_intent` | Backstop pool is empty; cannot claim from it. |
+| 108 | `BackstopAlreadyClaimed` ⚠ | 71 ⚠ | `batch_cancel_intent`, `batch_fill_intent`, `claim_backstop_compensation`, `fill_intent` | Backstop funds have already been claimed. |
+| 109 | `BatchTooLarge` ⚠ | 72 ⚠ | `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent` | Batch size exceeds maximum allowed. |
+| 110 | `TooManyBondTokens` ⚠ | 73 ⚠ | `register_solver`, `register_solver_with_token` | Too many bond tokens configured. |
+| 111 | `TooManyRouteEntries` ⚠ | 74 | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `get_solver_intents`, `set_solver_routes` | Solver's route configuration has too many entries. |
+| 112 | `ImplausibleDstAmount` ⚠ | 75 | `batch_cancel_intent`, `batch_fill_intent`, `batch_submit_intent`, `fill_intent`, `submit_intent` | Destination amount is implausibly large. |
+| 113 | `CancelCooldownNotExpired` ⚠ | 76 | `batch_cancel_intent`, `batch_fill_intent`, `cancel_intent`, `fill_intent` | Cancel cooldown period has not yet elapsed. |
+| 114 | `ExtensionAlreadyGranted` ⚠ | 77 | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `request_extension` | Intent has already used its one permitted extension. |
+| 115 | `ExtensionCapExceeded` ⚠ | 78 | `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `request_extension` | Extension cap has been exceeded. |
+| 116 | `NoPendingAdminTransfer` ⚠ | 79 | `accept_admin_transfer` | Pending admin transfer proposal not found. |
+| 117 | `AlreadyMigrated` ⚠ | 80 | `migrate` | Contract has already been migrated to this version. |
+| 118 | `MaxActiveIntentsCapReached` ⚠ | 81 | `accept_intent`, `accept_intent_with_bond`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent` | Maximum active intents per solver has been reached. |
+| 119 | `NoPendingUpgrade` ⚠ | 82 | `execute_upgrade` | No pending upgrade proposal found. |
+| 120 | `NoPendingDstTokenChange` ⚠ | 83 | `cancel_pending_dst_token_add`, `cancel_pending_dst_token_remove`, `execute_add_dst_token`, `execute_remove_dst_token` | No pending destination token change found. |
+| 121 | `NotArbiter` ⚠ | 84 | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Caller is not the designated arbiter. |
+| 122 | `IntentNotAcceptedForFill` ⚠ | 85 | `batch_cancel_intent`, `batch_fill_intent`, `begin_fill`, `fill_intent`, `release_fill`, `resolve_dispute` | Intent is not in accepted state for fill operations. |
+| 123 | `BondTokenNotAllowed` ⚠ | 86 | `accept_intent`, `accept_intent_with_bond`, `batch_accept_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent`, `register_solver`, `register_solver_with_token` | `accept_intent` called for a bond token not on the allowed list. |
+| 124 | `RescueTimelockNotElapsed` | 87 | — | `execute_rescue` was called before the `RESCUE_TIMELOCK_DELAY` since the matching `propose_rescue` call has elapsed. Mirrors the pattern used for `TimelockNotElapsed` on admin-transfer and dst-token changes. |
+| 125 | `NoPendingRescue` | 88 | — | `execute_rescue` (or `cancel_rescue`) was called with no matching `PendingRescue` record for the given token in persistent storage. Either `propose_rescue` was never called for this token, or the previous rescue was already executed or cancelled. |
+| 126 | `RescueLiabilityConflict` | 89 | — | `execute_rescue` or `propose_rescue` was called in the same ledger as a liability-changing operation on the same token. The per-token `TokenLiabilities` counter cannot be atomically snapshotted across ledger boundaries within a single transaction, so same-ledger proposals/executions are rejected to prevent a race where a bond deposit and a rescue land in the same ledger, giving the rescue a stale surplus view. |
+| 127 | `RescueAmountExceedsSurplus` | 90 | — | `execute_rescue` was called but the contract's current balance in `token` minus `TokenLiabilities(token)` is less than the requested `amount`. The surplus available for rescue has shrunk since `propose_rescue` (e.g. a new bond was posted or an escrow was created in the interim), so the rescue is rejected rather than drawing on funds needed by the protocol. |
+
+⚠ marks a declaration that collides with another one — see
+[Declaration collisions](#declaration-collisions-in-error) below.
+
+#### Declaration collisions in `Error`
+
+The enum currently contains duplicate declarations. They are
+listed here rather than silently merged, because each
+declaration carries its own discriminant and its own rustdoc and
+the two are not always equivalent. Fixing them is tracked by
+[#567](https://github.com/stellar-vortex-protocol/vortex-contracts/issues/567);
+this section exists so the table above stays a faithful
+description of the enum as it is today.
+
+**32 variant names are declared more than once:**
+
+| Variant | Codes | Declarations |
+|---------|-------|--------------|
+| `AlreadyMigrated` | 47, 80 | `migrate` called on a contract already at the current schema version. / Contract has already been migrated to this version. |
+| `AmountTooLarge` | 41, 66 | `src_amount` or `min_dst_amount` exceeds the MAX_AMOUNT safety ceiling. / Amount exceeds maximum allowed value. |
+| `ArbiterWindowExpired` | 55, 69 | Arbiter resolution window has elapsed. / Arbiter window has expired; dispute resolution window closed. |
+| `BackstopAlreadyClaimed` | 67, 71 | User already claimed backstop compensation for this intent. / Backstop funds have already been claimed. |
+| `BackstopPoolEmpty` | 66, 70 | Backstop pool is empty — nothing to pay out. / Backstop pool is empty; cannot claim from it. |
+| `BatchTooLarge` | 64, 72 | `batch_*` called with more than MAX_BATCH_SIZE items. / Batch size exceeds maximum allowed. |
+| `BidNotHigher` | 50, 64 | Submitted bid does not improve on the current best. / Submitted bid is not higher than current best bid. |
+| `BidWindowClosed` | 48, 61 | Bid-window closed — cannot accept new bids. / Bid window has closed; no longer accepting bids. |
+| `BidWindowStillOpen` | 49, 62 | `settle_bids` called while bid window is still open. / Bid window has not yet opened. |
+| `BondTokenNotAllowed` | 44, 86 | Bond token is not on the allowed-token set. / `accept_intent` called for a bond token not on the allowed list. |
+| `CancelCooldownNotExpired` | 40, 76 | `cancel_intent` rate-limit cooldown not yet expired. / Cancel cooldown period has not yet elapsed. |
+| `DisputeWindowClosed` | 58, 57 | The dispute window has closed with no dispute. / Dispute window has closed; no longer possible to open a dispute. |
+| `DisputeWindowExpired` | 57, 55 | Dispute window has already expired — cannot raise a dispute. / Dispute window has expired; no longer possible to contest a fill. |
+| `DisputeWindowStillOpen` | 56, 56 | Dispute window is still open — cannot release fill yet. / Dispute window has not yet opened; too early to contest. |
+| `ExtensionAlreadyGranted` | 45, 77 | `request_extension` already used for this intent. / Intent has already used its one permitted extension. |
+| `ExtensionCapExceeded` | 46, 78 | Withdrawal would leave the solver under-covered. / Extension cap has been exceeded. |
+| `ImplausibleDstAmount` | 42, 75 | `min_dst_amount` is implausible given the dst_token's declared decimals. / Destination amount is implausibly large. |
+| `IntentNotAcceptedForFill` | 61, 85 | `fill_intent` called on a non-Accepted intent (different message path). / Intent is not in accepted state for fill operations. |
+| `IntentNotBidding` | 51, 63 | Intent is not in Bidding state. / Intent is not in bidding state. |
+| `IntentNotDisputed` | 53, 67 | Intent is not in Disputed state. / Intent is not in disputed state for this operation. |
+| `IntentNotFilling` | 52, 65 | Intent is not in Filling state. / Intent is not in filling state for this operation. |
+| `InvalidConfig` | 36, 68 | `set_config` received an invalid parameter value. / Invalid protocol configuration. |
+| `MaxActiveIntentsCapReached` | 43, 81 | Solver's active-intent count is at the configured cap. / Maximum active intents per solver has been reached. |
+| `NoDisputeOpen` | 65, 58 | No dispute is currently open for this intent. / No dispute is currently open for this intent. |
+| `NoFillEscrowed` | 59, 59 | No fill is currently held in escrow for this intent. / No fill escrow exists to release. |
+| `NoPendingAdminTransfer` | 38, 79 | `accept_admin_transfer` called with no pending proposal. / Pending admin transfer proposal not found. |
+| `NoPendingDstTokenChange` | 39, 83 | `execute_add_dst_token` / `execute_remove_dst_token` with no proposal. / No pending destination token change found. |
+| `NoPendingUpgrade` | 60, 82 | No pending contract upgrade to execute. / No pending upgrade proposal found. |
+| `NotArbiter` | 54, 84 | Caller is not the arbiter. / Caller is not the designated arbiter. |
+| `TimelockNotElapsed` | 37, 60 | The timelock delay since the matching `propose_*` call has not elapsed. / Arbiter timeout has not yet elapsed; slash not yet available. |
+| `TooManyBondTokens` | 62, 73 | Solver has too many bond tokens. / Too many bond tokens configured. |
+| `TooManyRouteEntries` | 63, 74 | Solver has too many route entries. / Solver's route configuration has too many entries. |
+
+**38 discriminant values are reused by more than one
+declaration:**
+
+| Code | Variants |
+|------|---------|
+| 36 | `IntentNotTerminal`, `InvalidConfig` |
+| 37 | `RetentionPeriodNotElapsed`, `TimelockNotElapsed` |
+| 38 | `NoPendingAdminTransfer`, `PolicyRejected` |
+| 39 | `NoPendingDstTokenChange`, `NoPendingPolicy` |
+| 40 | `CancelCooldownNotExpired`, `OperatorNotAuthorized` |
+| 41 | `AmountTooLarge`, `OperatorLimitExceeded` |
+| 42 | `ImplausibleDstAmount`, `InvalidDelegateAmount` |
+| 43 | `InsufficientDelegatedShares`, `MaxActiveIntentsCapReached` |
+| 44 | `BondTokenNotAllowed`, `UnbondingInProgress` |
+| 45 | `ExtensionAlreadyGranted`, `InvalidBidCommitment` |
+| 46 | `BidRevealMismatch`, `ExtensionCapExceeded` |
+| 47 | `AlreadyMigrated`, `RevealWindowClosed` |
+| 48 | `BatchProcessingError`, `BidWindowClosed` |
+| 49 | `BidWindowStillOpen`, `ExclusivityViolation` |
+| 50 | `BidNotHigher`, `InvalidDecayConfig` |
+| 51 | `IntentNotBidding`, `SignatureInvalid` |
+| 52 | `IntentNotFilling`, `SignatureExpired` |
+| 53 | `DepositFailed`, `IntentNotDisputed` |
+| 54 | `IntentNotTerminalWithdraw`, `NotArbiter` |
+| 55 | `ArbiterWindowExpired`, `DisputeWindowExpired` |
+| 56 | `DisputeWindowStillOpen` |
+| 57 | `DisputeWindowClosed`, `DisputeWindowExpired` |
+| 58 | `DisputeWindowClosed`, `NoDisputeOpen` |
+| 59 | `NoFillEscrowed` |
+| 60 | `NoPendingUpgrade`, `TimelockNotElapsed` |
+| 61 | `BidWindowClosed`, `IntentNotAcceptedForFill` |
+| 62 | `BidWindowStillOpen`, `TooManyBondTokens` |
+| 63 | `IntentNotBidding`, `TooManyRouteEntries` |
+| 64 | `BatchTooLarge`, `BidNotHigher` |
+| 65 | `IntentNotFilling`, `NoDisputeOpen` |
+| 66 | `AmountTooLarge`, `BackstopPoolEmpty` |
+| 67 | `BackstopAlreadyClaimed`, `IntentNotDisputed` |
+| 68 | `ExposureExceeded`, `InvalidConfig` |
+| 69 | `ArbiterWindowExpired`, `OraclePriceStale` |
+| 70 | `BackstopPoolEmpty`, `OraclePriceInvalid` |
+| 71 | `BackstopAlreadyClaimed`, `OracleNotConfigured` |
+| 72 | `BatchTooLarge`, `OracleTimelockNotElapsed` |
+| 73 | `NoPendingOracle`, `TooManyBondTokens` |
+
+**The code raises variants the enum does not declare:**
+
+| Variant | Raised by |
+|---------|-----------|
+| `AmendmentCooldownActive` | `amend_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent` |
+| `AmendmentTooTightening` | `amend_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent` |
+| `ChainAlreadyConfigured` | `execute_chain_onboarding` |
+| `ChainNotConfigured` | `execute_chain_offboarding` |
+| `IntentNotAmendable` | `amend_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent` |
+| `InvalidAmendmentDeadline` | `amend_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent` |
+| `NoPendingChainOnboarding` | `execute_chain_onboarding` |
+| `OutboundIntentNotFound` | `accept_outbound_intent`, `batch_cancel_intent`, `batch_fill_intent`, `fill_intent` |
+
+**23 declared variants are never raised** in
+`intent_settlement/src/lib.rs`:
+
+`InvalidTokenInterface`, `OraclePriceStale`, `OraclePriceInvalid`, `OracleNotConfigured`, `OperatorNotAuthorized`, `OperatorLimitExceeded`, `InvalidDelegateAmount`, `InsufficientDelegatedShares`, `UnbondingInProgress`, `InvalidBidCommitment`, `BidRevealMismatch`, `RevealWindowClosed`, `BatchProcessingError`, `ExclusivityViolation`, `InvalidDecayConfig`, `SignatureInvalid`, `SignatureExpired`, `DepositFailed`, `IntentNotTerminalWithdraw`, `RescueTimelockNotElapsed`, `NoPendingRescue`, `RescueLiabilityConflict`, `RescueAmountExceedsSurplus`
+
+Some of these belong to features that are declared but inert — the
+operator, delegated-staking, sealed-bid and oracle surfaces are typed
+but never reached (see
+[#564](https://github.com/stellar-vortex-protocol/vortex-contracts/issues/564)
+ and
+[#549](https://github.com/stellar-vortex-protocol/vortex-contracts/issues/549)).
+
+<!-- END GENERATED: error-reference -->
 
 ---
 

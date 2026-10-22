@@ -447,6 +447,27 @@ jobs:
         run: scripts/check-view-calls-sync.sh
         shell: bash
 
+  error-reference-sync:
+    name: Check Error Reference table sync (Issue #531)
+    runs-on: ubuntu-latest
+    # Needs: contents: read (checkout only). This job only runs a Python
+    # script; it does not build the workspace and does not touch the network.
+    # Inherits workflow-level minimum.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run generator unit tests
+        # The generator is the thing that keeps the README honest, so it gets
+        # its own tests: enum parsing, call-graph attribution and drift
+        # detection (`--check` must fail when README.md and the enum diverge).
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: Check README Error Reference table is in sync with the Error enum
+        run: python3 scripts/generate-error-reference.py --check
+
   risk-aware-solver-bot-tests:
     name: Test risk_aware_solver_bot.py (Issue #293)
     runs-on: ubuntu-latest

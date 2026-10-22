@@ -55,6 +55,20 @@ build:  ## Build the release wasm binary
 audit:  ## Run cargo-audit against the dependency tree
 	cd $(WORKSPACE) && cargo audit
 
+# ── Generated documentation (issue #531) ─────────────────────────────────────
+#
+# README.md's "Error Reference" table is generated from the `Error` enum in
+# intent_settlement/src/lib.rs.  `error-reference-check` fails when the two
+# have drifted apart; `error-reference` rewrites the table.
+
+.PHONY: error-reference
+error-reference:  ## Regenerate README.md's Error Reference table from the Error enum
+	python3 scripts/generate-error-reference.py --write
+
+.PHONY: error-reference-check
+error-reference-check:  ## Verify README.md's Error Reference table matches the Error enum
+	python3 scripts/generate-error-reference.py --check
+
 .PHONY: clean
 clean:  ## Remove build artefacts
 	cd $(WORKSPACE) && cargo clean

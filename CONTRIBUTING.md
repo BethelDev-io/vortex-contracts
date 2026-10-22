@@ -303,6 +303,18 @@ discriminants. When adding a new error:
 2. Add a comment explaining the condition that triggers it.
 3. Update the relevant section of this document or the integration guide if the
    error is user-facing.
+4. Regenerate the "Error Reference" table in `README.md` — it is generated from
+   the enum, so it cannot be edited by hand:
+
+   ```bash
+   make error-reference          # or: just error-reference
+   make error-reference-check    # fails if README.md and the enum have drifted
+   ```
+
+   `scripts/generate-error-reference.py --write` rewrites the table and
+   `--check` fails when it is out of date; CI runs the check on every PR. The
+   generator's own tests live in `scripts/tests/` and run with
+   `python3 -m unittest discover -s scripts/tests`.
 
 ### Storage keys
 
@@ -498,6 +510,7 @@ configuration correct as the workflow grows.
 | `Contract (stable)` | `ci.yml` / `contract` matrix leg | ✅ Yes |
 | `Contract (1.78)` | `ci.yml` / `contract` matrix leg | ✅ Yes |
 | `Dependency audit` | `ci.yml` / `audit` | ✅ Yes |
+| `Check Error Reference table sync` | `ci.yml` / `error-reference-sync` | ❌ No (advisory) |
 | `Code coverage` | `ci.yml` / `coverage` | ❌ No (advisory) |
 | `Resource cost drift detection` | `ci.yml` / `resource-cost-drift` | ❌ No (advisory) |
 
