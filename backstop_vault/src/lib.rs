@@ -524,3 +524,85 @@ impl BackstopVault {
             .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::{Address as _, Ledger as _};
+    use soroban_sdk::{Env, IntoVal};
+
+    /// Deploy the vault, wire up a mock bond token, and return the client,
+    /// the token client, and the LP address along with the deposit timestamp.
+    fn setup_deposited_lp(
+        env: &Env,
+        deposit_amount: i128,
+    ) -> (BackstopVaultClient<'_>, token::Client<'_>, Address, u64) {
+        let admin = Address::generate(env);
+        let settlement = Address::generate(env);
+        let lp = Address::generate(env);
+
+        let token_admin = Address::generate(env);
+        let bond_token = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
+        let token_client = token::Client::new(env, &bond_token);
+        let token_admin_client = token::StellarAssetClient::new(env, &bond_token);
+
+        let contract_id = env.register(BackstopVault, ());
+        let client = BackstopVaultClient::new(env, &contract_id);
+
+        env.mock_all_auths();
+        client.initialize(&admin, &bond_token, &settlement);
+
+        token_admin_client.mint(&lp, &deposit_amount);
+
+        let deposit_ts: u64 = 1_000_000;
+        env.ledger().set_timestamp(deposit_ts);
+        client.deposit(&lp, &deposit_amount);
+
+        (client, token_client, lp, deposit_ts)
+    }
+
+    /// Boundary: `now == cooldown_until` must succeed (inclusive boundary).
+    #[test]
+    fn withdraw_succeeds_at_exact_cooldown_boundary() {
+        let env = Env::default();
+        let deposit_amount = MIN_DEPOSIT;
+        let (client, token_client, lp, deposit_ts) =
+            setup_deposited_lp(&env, deposit_amount);
+
+        let cooldown_until = deposit_ts + WITHDRAWAL_COOLDOWN_SECS;
+        env.ledger().set_timestamp(cooldown_until);
+
+        let (shares, _) = client.get_lp_position(&lp);
+        assert!(shares > 0);
+
+        let assets_out = client.withdraw(&lp, &shares);
+        assert!(assets_out > 0);
+        assert_eq!(token_client.balance(&lp), assets_out);
+
+        let (remaining, _) = client.get_lp_position(&lp);
+        assert_eq!(remaining, 0);
+    }
+
+    /// Boundary: `now == cooldown_until - 1` must fail with CooldownNotExpired.
+    #[test]
+    fn withdraw_fails_one_second_before_cooldown_boundary() {
+        let env = Env::default();
+        let deposit_amount = MIN_DEPOSIT;
+        let (client, _token_client, lp, deposit_ts) =
+            setup_deposited_lp(&env, deposit_amount);
+
+        let cooldown_until = deposit_ts + WITHDRAWAL_COOLDOWN_SECS;
+        env.ledger().set_timestamp(cooldown_until - 1);
+
+        let (shares, _) = client.get_lp_position(&lp);
+        assert!(shares > 0);
+
+        let result = client.try_withdraw(&lp, &shares);
+        assert_eq!(
+            result,
+            Err(Ok(Error::CooldownNotExpired.into_val(&env)))
+        );
+    }
+}
