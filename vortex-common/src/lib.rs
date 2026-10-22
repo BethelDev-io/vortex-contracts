@@ -48,6 +48,34 @@ pub fn bps_mul_div(amount: i128, bps: i128) -> Option<i128> {
     .checked_div(BPS)
 }
 
+/// Rounding direction for division operations.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Rounding {
+  /// Round towards zero (truncate) - default behavior.
+  Floor,
+  /// Round up (ceiling).
+  Ceil,
+  /// Round to nearest (half up).
+  Nearest,
+}
+
+/// Multiply `amount` by `bps` and divide by BPS with explicit rounding direction.
+/// Returns None on overflow.
+pub fn bps_mul_div_round(amount: i128, bps: i128, rounding: Rounding) -> Option<i128> {
+  let prod = amount.checked_mul(bps)?;
+  match rounding {
+    Rounding::Floor => Some(prod / BPS),
+    Rounding::Ceil => {
+      let (div, rem) = (prod / BPS, prod % BPS);
+      if rem > 0 { div.checked_add(1) } else { Some(div) }
+    }
+    Rounding::Nearest => {
+      let (div, rem) = (prod / BPS, prod % BPS);
+      if rem * 2 >= BPS { div.checked_add(1) } else { Some(div) }
+    }
+  }
+}
+
 /// Compute slash amount for a given tier (tier × TIER_SLASH_BPS of the principal).
 /// Tier 0 (Unranked) = no slash.
 pub fn compute_slash_bps(tier: u32) -> i128 {
