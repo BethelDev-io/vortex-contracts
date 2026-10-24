@@ -625,3 +625,6 @@ Current ecosystem tooling examples:
 - #400: [High] Add an interface-version handshake between cooperating contracts
 <!-- handsoff-issue-404 -->
 - #404: [High] Add on-chain rate-of-change guardrails to protocol parameters
+
+<!-- handsoff-issue-473 -->
+- #473: [High] Extend CI's `fmt`/`contract`/`wasm-size`/`audit` job matrices to cover every crate
