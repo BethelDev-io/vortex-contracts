@@ -331,6 +331,9 @@ fn validate_sinks(env: &Env, sinks: &Vec<Sink>) -> Result<(), FeeRouterError> {
 }
 
 #[cfg(test)]
+mod bench;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Ledger};
