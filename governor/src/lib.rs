@@ -133,7 +133,7 @@ impl Governor {
         }
 
         let snapshot = env.ledger().sequence();
-        let power = Self::voting_power(&env, &config.registry, &proposer, snapshot);
+        let power = Self::compute_voting_power(&env, &config.registry, &proposer, snapshot);
         if power < config.proposal_threshold {
             return Err(GovernorError::BelowProposalThreshold);
         }
@@ -203,7 +203,7 @@ impl Governor {
     ) -> Result<i128, GovernorError> {
         voter.require_auth();
         let config = Self::config(&env)?;
-        let mut proposal = Self::proposal(&env, proposal_id)?;
+        let mut proposal = Self::load_proposal(&env, proposal_id)?;
 
         if proposal.canceled {
             return Err(GovernorError::ProposalCanceled);
@@ -221,7 +221,7 @@ impl Governor {
             return Err(GovernorError::AlreadyVoted);
         }
 
-        let power = Self::voting_power(&env, &config.registry, &voter, proposal.snapshot);
+        let power = Self::compute_voting_power(&env, &config.registry, &voter, proposal.snapshot);
         if power <= 0 {
             return Err(GovernorError::NoVotingPower);
         }
@@ -243,7 +243,7 @@ impl Governor {
     /// owns the delayed execution. The governor records the resulting `eta`.
     pub fn queue(env: Env, proposal_id: u32) -> Result<(), GovernorError> {
         let config = Self::config(&env)?;
-        let mut proposal = Self::proposal(&env, proposal_id)?;
+        let mut proposal = Self::load_proposal(&env, proposal_id)?;
         if Self::state_of(&env, &config, &proposal) != ProposalState::Succeeded {
             return Err(GovernorError::ProposalNotSucceeded);
         }
@@ -268,7 +268,7 @@ impl Governor {
     /// proposal has real on-chain effect.
     pub fn execute(env: Env, proposal_id: u32) -> Result<(), GovernorError> {
         let config = Self::config(&env)?;
-        let mut proposal = Self::proposal(&env, proposal_id)?;
+        let mut proposal = Self::load_proposal(&env, proposal_id)?;
         if proposal.executed {
             return Err(GovernorError::AlreadyExecuted);
         }
@@ -293,7 +293,7 @@ impl Governor {
 
     pub fn state(env: Env, proposal_id: u32) -> Result<ProposalState, GovernorError> {
         let config = Self::config(&env)?;
-        let proposal = Self::proposal(&env, proposal_id)?;
+        let proposal = Self::load_proposal(&env, proposal_id)?;
         Ok(Self::state_of(&env, &config, &proposal))
     }
 
