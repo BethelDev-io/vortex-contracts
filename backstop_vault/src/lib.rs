@@ -481,8 +481,32 @@ impl BackstopVault {
         (total_assets, total_shares, rate)
     }
 
-    /// Returns (share_balance, queued_withdrawal_amount) for `lp`.
-    pub fn get_lp_position(env: Env, lp: Address) -> (i128, i128) {
+    /// Returns `(share_balance, queued_withdrawal_amount, withdraw_cooldown_until)`
+    /// for `lp`.
+    ///
+    /// `share_balance` is the LP's vault shares; `queued_withdrawal_amount` is
+    /// what is still queued for the LP from emergency-mode withdrawals; and
+    /// `withdraw_cooldown_until` is the earliest ledger timestamp at which the
+    /// LP's next `withdraw` call will be accepted.
+    ///
+    /// The cooldown timestamp is the value `withdraw` itself compares against
+    /// (`now < cooldown_until` → `Error::CooldownNotExpired`). Surfacing it
+    /// here means an LP or a dashboard can tell when a withdrawal becomes
+    /// possible without reading the contract's private storage key
+    /// `DataKey::WithdrawCooldown(lp)`.
+    ///
+    /// An LP that has never deposited has no cooldown entry, and the value
+    /// reported is `0` — the same default `withdraw` uses, i.e. "no cooldown".
+    ///
+    /// ## ABI change
+    ///
+    /// This view previously returned a 2-tuple `(share_balance,
+    /// queued_withdrawal_amount)`. The third element is **additive** in
+    /// meaning, but it does change the tuple's shape, so a client that
+    /// destructures the old 2-tuple needs updating to a 3-tuple. The contract
+    /// has no in-tree consumer of this view, and it has not been deployed to
+    /// mainnet, so there is no live consumer to migrate.
+    pub fn get_lp_position(env: Env, lp: Address) -> (i128, i128, u64) {
         let shares: i128 = env
             .storage()
             .persistent()
@@ -491,9 +515,14 @@ impl BackstopVault {
         let queued: i128 = env
             .storage()
             .persistent()
-            .get(&DataKey::WithdrawQueue(lp))
+            .get(&DataKey::WithdrawQueue(lp.clone()))
             .unwrap_or(0);
-        (shares, queued)
+        let cooldown_until: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::WithdrawCooldown(lp))
+            .unwrap_or(0);
+        (shares, queued, cooldown_until)
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────
@@ -527,3 +556,85 @@ impl BackstopVault {
 
 #[cfg(test)]
 mod bench;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::{Address as _, Ledger as _};
+    use soroban_sdk::{Env, IntoVal};
+
+    /// Deploy the vault, wire up a mock bond token, and return the client,
+    /// the token client, and the LP address along with the deposit timestamp.
+    fn setup_deposited_lp(
+        env: &Env,
+        deposit_amount: i128,
+    ) -> (BackstopVaultClient<'_>, token::Client<'_>, Address, u64) {
+        let admin = Address::generate(env);
+        let settlement = Address::generate(env);
+        let lp = Address::generate(env);
+
+        let token_admin = Address::generate(env);
+        let bond_token = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
+        let token_client = token::Client::new(env, &bond_token);
+        let token_admin_client = token::StellarAssetClient::new(env, &bond_token);
+
+        let contract_id = env.register(BackstopVault, ());
+        let client = BackstopVaultClient::new(env, &contract_id);
+
+        env.mock_all_auths();
+        client.initialize(&admin, &bond_token, &settlement);
+
+        token_admin_client.mint(&lp, &deposit_amount);
+
+        let deposit_ts: u64 = 1_000_000;
+        env.ledger().set_timestamp(deposit_ts);
+        client.deposit(&lp, &deposit_amount);
+
+        (client, token_client, lp, deposit_ts)
+    }
+
+    /// Boundary: `now == cooldown_until` must succeed (inclusive boundary).
+    #[test]
+    fn withdraw_succeeds_at_exact_cooldown_boundary() {
+        let env = Env::default();
+        let deposit_amount = MIN_DEPOSIT;
+        let (client, token_client, lp, deposit_ts) =
+            setup_deposited_lp(&env, deposit_amount);
+
+        let cooldown_until = deposit_ts + WITHDRAWAL_COOLDOWN_SECS;
+        env.ledger().set_timestamp(cooldown_until);
+
+        let (shares, _, _) = client.get_lp_position(&lp);
+        assert!(shares > 0);
+
+        let assets_out = client.withdraw(&lp, &shares);
+        assert!(assets_out > 0);
+        assert_eq!(token_client.balance(&lp), assets_out);
+
+        let (remaining, _, _) = client.get_lp_position(&lp);
+        assert_eq!(remaining, 0);
+    }
+
+    /// Boundary: `now == cooldown_until - 1` must fail with CooldownNotExpired.
+    #[test]
+    fn withdraw_fails_one_second_before_cooldown_boundary() {
+        let env = Env::default();
+        let deposit_amount = MIN_DEPOSIT;
+        let (client, _token_client, lp, deposit_ts) =
+            setup_deposited_lp(&env, deposit_amount);
+
+        let cooldown_until = deposit_ts + WITHDRAWAL_COOLDOWN_SECS;
+        env.ledger().set_timestamp(cooldown_until - 1);
+
+        let (shares, _, _) = client.get_lp_position(&lp);
+        assert!(shares > 0);
+
+        let result = client.try_withdraw(&lp, &shares);
+        assert_eq!(
+            result,
+            Err(Ok(Error::CooldownNotExpired.into_val(&env)))
+        );
+    }
+}

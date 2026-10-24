@@ -11,6 +11,46 @@ first deploys to mainnet.
 
 ### Added
 
+- **`governor` contract — on-chain proposal/voting lifecycle (issue #508).**
+  New `governor/` crate implementing proposal creation, per-address voting,
+  quorum tracking, and permissionless execution once a proposal passes. Core
+  state machine (`Pending → Active → Succeeded/Defeated → Queued → Executed`)
+  is present. Known gaps: quorum/threshold constants are not yet tuneable via
+  admin config, and the execution hook into `intent_settlement` admin operations
+  is not wired. Not yet production-ready; tracked in issue #508.
+
+- **`backstop_vault` contract — last-resort collateral reserve (issue #508).**
+  New `backstop_vault/` crate providing a deposit/withdraw vault that can be
+  drawn on to cover under-collateralised slash shortfalls. Collusion-risk
+  mitigations documented in `docs/369-backstop-collusion-analysis.md` are not
+  yet fully implemented; the redemption-under-shortfall path requires further
+  hardening before mainnet use. Not yet production-ready; tracked in issue #508.
+
+- **`treasury_streams` contract — continuous protocol-fee streaming (issue #508).**
+  New `treasury_streams/` crate supporting creation and cancellation of
+  per-second token streams to designated recipients. Stream creation and
+  cancellation are functional. Rate-change governance hook and safe-transfer
+  edge cases (zero-balance flush, stream expiry without explicit cancel) need
+  review. Not yet production-ready; tracked in issue #508.
+
+- **`fee_router` contract — protocol-fee distribution router (issue #508).**
+  New `fee_router/` crate routing incoming protocol fees to `treasury_streams`
+  and/or `backstop_vault` according to an admin-configured split ratio. Core
+  routing logic is present. Split-update timelock and multi-recipient input
+  validation are incomplete. Not yet production-ready; tracked in issue #508.
+
+- **`timelock` contract — standalone timelock controller (issue #508).**
+  New `timelock/` crate providing a configurable-delay execution controller,
+  distinct from the `propose_*/execute_*` pattern embedded in
+  `intent_settlement`. Intended to wrap `governor` proposal execution. Delay
+  parameterisation and the cancellation path require final review before
+  production use. Not yet production-ready; tracked in issue #508.
+
+- **`intent_periphery` contract — intent convenience layer (issue #508).**
+  New `intent_periphery/` crate exposing higher-level helpers built on top of
+  `intent_settlement` (e.g. single-call submit-and-accept flows for testing and
+  integrations). Not yet production-ready; tracked in issue #508.
+
 - **CI: Enforce CHANGELOG.md updates (issue #294).** A new CI job verifies that
   every PR changing `intent_settlement/src/` or `proof_registry/src/` includes a
   corresponding update to `CHANGELOG.md`. An escape hatch (`no-changelog-needed`
@@ -37,6 +77,19 @@ first deploys to mainnet.
 
 ### Changed
 
+- **`fee_router` rewritten as a real Soroban contract (issue #464).**
+  `fee_router/src/lib.rs` is now a deployable `#![no_std]` contract with
+  `#[contract]`/`#[contractimpl]` instead of plain `std` Rust. Sinks and the
+  governance address are `soroban_sdk::Address` (was `String`), transfers go
+  through `token::Client` (was a caller-supplied `FnOnce` closure), and all
+  state (weights, governance, timelock, claimable balances) lives in Soroban
+  storage (was in-memory `BTreeMap`s). The pull-based `claimable` accounting,
+  timelocked `propose_weights`/`apply_weights`, and dust-to-first-sink
+  conservation are preserved. The inline test scenarios
+  (`distribute_conserves_balance`, `weights_must_sum_to_total`,
+  `timelock_enforced`, `rejected_transfer_keeps_share_claimable`) are ported to
+  `soroban_sdk::testutils`. Fee-on-transfer tokens are handled by crediting the
+  amount actually received (balance delta) rather than the requested amount.
 - **Storage layout — `SolverRecord` / `IntentRecord` (issue #187, #188).**
   `SolverRecord` gains a `bond_tokens: Vec<Address>` field enumerating every
   approved token a solver holds a bond in; `bond_amount` is retained as the
@@ -122,127 +175,11 @@ first deploys to mainnet.
   and `migrate()` guard) matching the pattern in `intent_settlement`. Allows 
   `proof_registry` to evolve without data loss or re-initialization. Migration 
   guard prevents double-execution on the same version.
-- **Storage TTL management**: persistent `Intent`/`Solver` entries and the
-  contract instance now have their TTL extended on every write, closing a
+- **Storage TTL management**: persistent `Intent`/`Solver` entries and the 
+  contract instance now have their TTL extended on every write, closing a 
   gap where none of Soroban's state-archival requirements were handled.
 - **Admin key management**: `set_fee_recipient`, `transfer_admin`
-  (requires auth from both the outgoing and incoming admin), and
-  `get_admin`/`get_fee_recipient` views -- previously no rotation path
+  (requires auth from both the outgoing and incoming admin), and 
+  `get_admin`/`get_fee_recipient` views -- previously no rotation path 
   existed for either role.
-- **Emergency pause**: `pause()`/`unpause()`/`is_paused()`, gating
-  `submit_intent`/`accept_intent`/`fill_intent` for incident response.
-  `slash_solver` and `cancel_intent` stay available throughout.
-- **Partial bond withdrawal**: `withdraw_bond(amount)` lets a solver
-  reclaim excess collateral above `MIN_BOND` without fully deregistering.
-- **Permissionless intent expiry**: `expire_intent()` materializes an
-  `Open` intent's `Expired` state once its deadline passes, instead of
-  relying on a lazy check inside `accept_intent`.
-- **Views**: `get_bond_token`, `get_solver_count` (backed by a new
-  `TotalSolvers` stat), `is_solver_eligible`.
-- **Aggregate health view**: `get_protocol_health` bundles `is_paused`,
-  `get_stats`, and `get_solver_count` into a single `ProtocolHealth`
-  struct so dashboard/monitoring integrations need one call instead of
-  three (#112).
-- **Destination token allowlist**: `add_allowed_dst_token` /
-  `remove_allowed_dst_token` / `is_dst_token_allowed`, enforced in
-  `submit_intent` only once an admin opts in via
-  `set_dst_allowlist_enabled` (off by default).
-- **Timelocked admin actions** (#115, #116): sensitive admin changes now go
-  through a propose-then-execute flow with a 48-hour delay, so users and
-  solvers have a window to notice and react before a change takes effect.
-  A distinct `*_proposed` event fires immediately at proposal time, ahead of
-  the delay, giving off-chain monitors advance notice either way.
-  - `set_fee_recipient` is superseded by `propose_fee_recipient` /
-    `accept_fee_recipient`, now timelocked (`get_pending_fee_recipient`
-    returns `(Address, u64 eta)`).
-  - `transfer_admin` is superseded by `propose_admin_transfer` /
-    `accept_admin_transfer`, now timelocked (`get_pending_admin`).
-  - `add_allowed_dst_token` / `remove_allowed_dst_token` are superseded by
-    `propose_add_dst_token` / `execute_add_dst_token` and
-    `propose_remove_dst_token` / `execute_remove_dst_token` (#118).
-    `execute_*` is permissionless once the delay has elapsed, since the
-    change was already authorized by the admin at proposal time.
-- **Enumerable dst_token allowlist** (#117): `list_allowed_dst_tokens()`
-  returns every token currently on the allowlist, so integrators and
-  auditors no longer have to replay `dst_token_allowed` /
-  `dst_token_disallowed` events to reconstruct the full list.
-- **Batch fill / cancel** (#199): `batch_fill_intent(solver, fills)` and
-  `batch_cancel_intent(user, intent_ids)` complete the batch API alongside
-  the existing `batch_submit_intent` / `batch_accept_intent`. All four are
-  capped at `MAX_BATCH_SIZE` and revert the whole batch on any failure.
-  `batch_cancel_intent` checks and stamps the per-user `CANCEL_COOLDOWN`
-  once for the call, so a user can clear all of their open intents in one
-  transaction.
-- **Paginated solver enumeration** (#198): `list_solvers(start, limit)`
-  returns registered solver addresses a bounded page at a time (limit
-  clamped to `MAX_BATCH_SIZE`), kept in sync by `register_solver` /
-  `deregister_solver`. Integrators can enumerate solvers without replaying
-  `solver_registered` / `solver_deregistered` events.
-- **Solana as a fully-supported source chain** (#201): `src_chain =
-  "solana"` is validated end-to-end (base58 SPL mint, 32–44 chars, no `0x`
-  prefix) and documented alongside the EVM chains; the README's "planned"
-  marker is removed.
-- **`solver_registry` contract + tier perks** (#197, partial #186): new
-  `solver_registry/` crate storing an admin-managed tier per solver
-  (Unranked → Platinum) with `get_tier` and the perk-schedule views.
-  `intent_settlement` gains `set_solver_registry(Option<Address>)`: when a
-  registry is linked, `accept_intent` extends the fill window by the tier's
-  bonus (+0 / +10 / +20 / +30 / +50 %) and `slash_solver` slashes at the
-  tier's reduced rate (10 / 10 / 8 / 6 / 5 %, 5% floor). The tier is
-  snapshotted on the `IntentRecord` at accept-time, so a mid-flight
-  promotion/demotion doesn't change the slash. The integration is optional
-  and degrades to Unranked when unset or unreachable — behaviour with no
-  registry is byte-for-byte the pre-#197 flat 10% slash / fixed window.
-  Score-gated promotion, staking and migration remain #186.
-
-### Changed
-
-- CI now also runs a dependency-audit job (`cargo audit` against the
-  RustSec advisory database) alongside the existing fmt/clippy/test/build
-  checks.
-- CI `wasm-size` job now measures the `wasm-opt -Oz` artifact (the size
-  that actually deploys) against a pinned binaryen, and `[profile.release]`
-  enables `lto`. After #197 the optimized `intent_settlement` wasm is
-  ~63.7 KB — within ~1.8 KB of Soroban's 64 KB hard limit — so the budget
-  is 64 500 bytes and a dedicated size-reduction pass is now **blocking**
-  further feature work.
-- Removed the never-functional bid-window scaffolding from
-  `intent_settlement` (`BID_WINDOW`, `BestBidRecord`, `is_bid_window_enabled`
-  and the dead `Bidding` branch in `submit_intent`); `submit_intent` always
-  opened intents as `Open` already. The `IntentState::Bidding` variant is
-  retained as reserved.
-- CI: new `solver-registry` job (fmt / clippy / test / wasm build) for the
-  new crate.
-
-### Documentation
-
-- README: added `stellar contract invoke` usage examples for the core
-  intent lifecycle and an up-to-date entrypoint list.
-- Filled in missing rustdoc on `unpause`, `is_paused`, and the view
-  functions.
-- Added `docs/110-monitoring-alerting-spec.md`: signals and thresholds an
-  ops team should watch, including slash rate, bond utilization, and
-  pause/unpause activity (#110).
-- Added `docs/111-expire-intent-event-coverage.md`: confirms and documents
-  the gap between the `intent_expired` event and an intent that is merely
-  past its deadline but not yet materialized as `Expired` (#111).
-- Added `docs/113-event-topic-naming-conventions.md`: documents the
-  current event topic conventions in `intent_settlement` and sets the
-  naming convention future contracts (e.g. `solver_registry`) should
-  follow (#113).
-- `docs/132-supported-chains.md`: promoted Solana from "Planned" to
-  "Supported" with full base58/decimals rigor (§3.2) and a real SPL-mint
-  address table (§4.8); noted that `avalanche`/`bsc` `src_token`s are not
-  yet format-checked on-chain (#201).
-- `docs/solver-integration-guide.md`: added per-source-chain guidance for
-  interpreting `src_token` / `src_amount`, including how to resolve a
-  Solana SPL mint and read its (non-uniform) decimals (#201).
-- README: Solana row in the decimal-normalization table; batch and
-  `list_solvers` entrypoints added to the function list (#198, #199, #201).
-- `indexer/reference-indexer.js`: noted `list_solvers` as the on-chain
-  alternative to full `solver_registered` / `solver_deregistered` replay
-  (#198).
-- `docs/solver-registry-design.md`: added an "Implementation status" section
-  recording what #197 shipped, the local-tier-table deviation from §6, the
-  accept-time snapshot decision, and that the §8 fee rebate is deferred and
-  should be unified with #7 (#197).
+- **Emergency pause**: `pause()`/`unpause()`/`is_paused()`, 
