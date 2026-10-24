@@ -27,6 +27,15 @@ mod bench;
 // Issue #415: Pure arithmetic helpers (Env-free, Kani-provable).
 pub mod math;
 
+// Issue #479: The twelve cohesive submodules described in
+// `docs/MODULE_REFACTORING_PLAN.md` (`admin`, `config`, `allowlist`, `bonds`,
+// `intents`, `bids`, `disputes`, `backstop`, `views`, `storage`, `types`,
+// `errors`, `events`). Wiring the scaffold in here makes those files part of
+// the crate so the split can be executed incrementally without changing the
+// public ABI: the single `#[contractimpl]` block below remains the only
+// source of exported entrypoints and delegates to the module helpers.
+pub mod modules;
+
 // Issue #415: Kani model-checker harnesses. Only compiled under `kani`.
 #[cfg(kani)]
 mod kani_proofs;

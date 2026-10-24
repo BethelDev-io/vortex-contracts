@@ -14,6 +14,8 @@ pub enum DataKey {
     NextId,
     /// Per-stream record.
     Stream(u64),
+    /// Circuit-breaker flag gating `create_stream` and `withdraw`.
+    Paused,
 }
 
 /// A single payment stream.
@@ -44,6 +46,8 @@ pub enum Error {
     NothingToWithdraw = 7,
     AlreadyCancelled = 8,
     NoPendingGovernor = 9,
+    Paused = 10,
+    NotPaused = 11,
 }
 
 #[contract]
@@ -58,6 +62,7 @@ impl TreasuryStreams {
         }
         env.storage().instance().set(&DataKey::Governor, &governor);
         env.storage().instance().set(&DataKey::NextId, &0u64);
+        env.storage().instance().set(&DataKey::Paused, &false);
         Ok(())
     }
 
@@ -88,6 +93,41 @@ impl TreasuryStreams {
         Ok(())
     }
 
+    /// Pauses `create_stream` and `withdraw`. Only the governor may call this.
+    ///
+    /// `cancel` deliberately remains available while paused so that unvested
+    /// funds can still be returned to senders during an incident.
+    pub fn pause(env: Env) -> Result<(), Error> {
+        Self::require_governor(&env)?;
+        if Self::is_paused(&env) {
+            return Err(Error::Paused);
+        }
+        env.storage().instance().set(&DataKey::Paused, &true);
+        env.events()
+            .publish((soroban_sdk::symbol_short!("pause"),), ());
+        Ok(())
+    }
+
+    /// Lifts the pause. Only the governor may call this.
+    pub fn unpause(env: Env) -> Result<(), Error> {
+        Self::require_governor(&env)?;
+        if !Self::is_paused(&env) {
+            return Err(Error::NotPaused);
+        }
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.events()
+            .publish((soroban_sdk::symbol_short!("unpause"),), ());
+        Ok(())
+    }
+
+    /// Returns whether the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
     /// Creates a new stream funded by `sender`. Only the governor may call this.
     pub fn create_stream(
         env: Env,
@@ -105,6 +145,10 @@ impl TreasuryStreams {
             .get(&DataKey::Governor)
             .ok_or(Error::NotInitialized)?;
         governor.require_auth();
+
+        if Self::is_paused(&env) {
+            return Err(Error::Paused);
+        }
 
         if total <= 0 {
             return Err(Error::InvalidAmount);
@@ -140,6 +184,10 @@ impl TreasuryStreams {
 
     /// Pull-based withdrawal of all currently vested funds for a stream.
     pub fn withdraw(env: Env, stream_id: u64) -> Result<i128, Error> {
+        if Self::is_paused(&env) {
+            return Err(Error::Paused);
+        }
+
         let mut stream: Stream = env
             .storage()
             .persistent()
@@ -172,6 +220,9 @@ impl TreasuryStreams {
 
     /// Cancels a stream. Unvested funds return to the sender; vested funds stay
     /// withdrawable by the recipient. Only the governor may call this.
+    ///
+    /// Intentionally NOT gated by the pause flag: cancellation returns funds to
+    /// senders and must remain available during an incident.
     pub fn cancel(env: Env, stream_id: u64) -> Result<(), Error> {
         let governor: Address = env
             .storage()
@@ -230,6 +281,17 @@ impl TreasuryStreams {
             .persistent()
             .get(&DataKey::Stream(stream_id))
             .ok_or(Error::StreamNotFound)
+    }
+
+    /// Loads the governor and requires its authorization.
+    fn require_governor(env: &Env) -> Result<Address, Error> {
+        let governor: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Governor)
+            .ok_or(Error::NotInitialized)?;
+        governor.require_auth();
+        Ok(governor)
     }
 
     /// Precision-safe vested amount: `total * elapsed / duration` using integer

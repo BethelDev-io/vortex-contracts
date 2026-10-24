@@ -10,9 +10,11 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
+timelock = { path = "../timelock" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+timelock = { path = "../timelock", features = ["testutils"] }
 
 [features]
 testutils = ["soroban-sdk/testutils"]
