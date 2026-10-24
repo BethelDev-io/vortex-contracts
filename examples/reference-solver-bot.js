@@ -9,6 +9,11 @@
  * 3. Accept an intent (accept_intent)
  * 4. Fill the intent (fill_intent)
  *
+ * Steps 3 and 4 submit real transactions via the Stellar CLI (`stellar` must be
+ * on PATH). Steps 1 and 2 (eligibility check, intent polling) are still
+ * simulated placeholders and use a fabricated intent id, so accept_intent will
+ * fail against a live contract until you wire in real list_open_intents data.
+ *
  * This is a simplified example for integration testing against testnet.
  * Production solvers should:
  * - Use event streaming instead of polling
@@ -25,6 +30,7 @@
  *   node examples/reference-solver-bot.js
  */
 
+const { execFileSync } = require('child_process');
 const {
   Keypair,
   Server,
@@ -54,6 +60,25 @@ function validateEnv() {
     console.error(`Error: Missing required environment variables: ${missing.join(', ')}`);
     process.exit(1);
   }
+}
+
+// Invoke a contract function through the Stellar CLI (same pattern as
+// examples/risk_aware_solver_bot.py's stellar_tx). Requires `stellar` on PATH.
+function stellarInvoke(fn, args) {
+  const out = execFileSync(
+    'stellar',
+    [
+      'contract', 'invoke',
+      '--id', CONTRACT_ID,
+      '--source', SOLVER_SECRET_KEY,
+      '--network', NETWORK,
+      '--',
+      fn,
+      ...args,
+    ],
+    { encoding: 'utf8' }
+  );
+  return out.trim();
 }
 
 // Initialize Horizon and Soroban clients
@@ -124,25 +149,17 @@ async function acceptIntent(intent, horizon) {
     const intentId = intent.id;
     console.log(`Accepting intent: ${intentId}`);
 
-    // In production, you would:
-    // 1. Validate the intent (check user, token, amounts)
-    // 2. Confirm you have liquidity on the source chain
-    // 3. Build and submit the accept_intent transaction via stellar-cli or SDK
-    //
-    // Example with Stellar CLI:
-    // stellar contract invoke \
-    //   --id <CONTRACT_ID> \
-    //   --source <SOLVER_SECRET_KEY> \
-    //   --network testnet \
-    //   -- accept_intent \
-    //   --solver <SOLVER_ADDRESS> \
-    //   --intent_id <INTENT_ID>
-
-    console.log('✓ Intent accepted (requires actual transaction in production)');
+    // Submit the real accept_intent transaction
+    const txResult = stellarInvoke('accept_intent', [
+      '--solver', SOLVER_ADDRESS,
+      '--intent_id', String(intentId),
+    ]);
+    console.log('✓ Intent accepted:', txResult);
     return {
       ...intent,
       accepted: true,
       acceptedAt: Date.now(),
+      acceptTx: txResult,
       fillDeadline: Math.floor(Date.now() / 1000) + 300, // 5-minute fill window
     };
   } catch (error) {
@@ -158,35 +175,26 @@ async function fillIntent(acceptedIntent, horizon) {
   try {
     console.log(`Filling intent: ${acceptedIntent.id}`);
 
-    // In production, you would:
-    // 1. Execute the cross-chain swap on the source chain
-    //    (e.g. Uniswap on Ethereum for the above example)
-    // 2. Wait for confirmation
-    // 3. Transfer the destination tokens to the intent's user
-    // 4. Submit the fill_intent transaction
-    //
-    // Example with Stellar CLI:
-    // stellar contract invoke \
-    //   --id <CONTRACT_ID> \
-    //   --source <SOLVER_SECRET_KEY> \
-    //   --network testnet \
-    //   -- fill_intent \
-    //   --solver <SOLVER_ADDRESS> \
-    //   --intent_id <INTENT_ID> \
-    //   --fill_amount <FILL_AMOUNT>
-
-    const fillAmount = acceptedIntent.minDstAmount; // In production, usually more
+    // Cross-chain execution of the swap is out of scope for this example;
+    // the destination tokens must already be delivered before fill_intent.
+    const fillAmount = acceptedIntent.minDstAmount;
     console.log(`  Source chain: ${acceptedIntent.srcChain}`);
     console.log(`  Source token: ${acceptedIntent.srcToken}`);
     console.log(`  Source amount: ${acceptedIntent.srcAmount}`);
     console.log(`  Fill amount: ${fillAmount}`);
-    console.log('✓ Intent filled (requires actual transaction in production)');
+    const txResult = stellarInvoke('fill_intent', [
+      '--solver', SOLVER_ADDRESS,
+      '--intent_id', String(acceptedIntent.id),
+      '--fill_amount', String(fillAmount),
+    ]);
+    console.log('✓ Intent filled:', txResult);
 
     return {
       ...acceptedIntent,
       filled: true,
       filledAt: Date.now(),
       fillAmount,
+      fillTx: txResult,
     };
   } catch (error) {
     console.error('✗ Failed to fill intent:', error.message);

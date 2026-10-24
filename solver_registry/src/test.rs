@@ -11,10 +11,6 @@ use crate::{
     Error, SolverRecord, SolverRegistry, SolverRegistryClient, ADMIN_TIMELOCK_DELAY, USDC,
     WRITER_TIMELOCK_DELAY,
 };
-use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    token, Address, Env,
-};
 use core::sync::atomic::{AtomicU32, Ordering};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
@@ -26,6 +22,13 @@ use soroban_sdk::{
 fn next_intent(env: &Env) -> BytesN<32> {
     static COUNTER: AtomicU32 = AtomicU32::new(1);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut bytes = [0u8; 32];
+    bytes[..4].copy_from_slice(&n.to_be_bytes());
+    BytesN::from_array(env, &bytes)
+}
+
+/// A fresh `intent_id` per call for the obligation tests.
+fn intent(env: &Env, n: u32) -> BytesN<32> {
     let mut bytes = [0u8; 32];
     bytes[..4].copy_from_slice(&n.to_be_bytes());
     BytesN::from_array(env, &bytes)
@@ -57,6 +60,15 @@ impl Ctx {
         self.mint(&self.solver, bond);
         self.client().register_solver(&self.solver, &bond);
     }
+}
+
+/// Register the default solver at the floor and install a fresh writer,
+/// returning the writer address.
+fn with_writer(ctx: &Ctx) -> Address {
+    ctx.register(FLOOR);
+    let writer = Address::generate(&ctx.env);
+    ctx.client().set_writer(&writer);
+    writer
 }
 
 fn setup() -> Ctx {
@@ -766,23 +778,57 @@ fn obligations_are_scoped_per_solver() {
     let other = Address::generate(&ctx.env);
     ctx.mint(&other, FLOOR);
     c.register_solver(&other, &FLOOR);
+
+    // Locking an obligation against one solver must not affect the other.
+    c.lock_obligation(&writer, &ctx.solver, &intent(&ctx.env, 1));
+    assert_eq!(c.get_open_obligations(&ctx.solver), 1);
+    assert_eq!(c.get_open_obligations(&other), 0);
 }
 
-// ─── Tier demotion on slash ────────────────────────────────────────────────
+// ─── Obligation lock is inert (#392 / #540) ────────────────────────────────
 
+/// Regression test documenting the gap tracked by #540.
+///
+/// The obligation-lock mechanism (`lock_obligation` / `release_obligation` /
+/// `has_obligation` / `get_open_obligations`) is completely inert:
+///
+/// 1. `intent_settlement` — the only contract that could meaningfully create
+///    or clear an obligation — never calls any of these four functions, so the
+///    count can never be non-zero in production.
+/// 2. `deregister_solver` and `unstake` never consult `get_open_obligations`,
+///    so even a non-zero count does not block exit or unstake.
+///
+/// This test forces a non-zero obligation count via the writer path and shows
+/// that both `deregister_solver` and `unstake` still succeed today, i.e. the
+/// #392 protection ("block registry exit while a solver has open obligations
+/// in settlement") is unenforced.
+///
+/// Companion fix issues: (a) wire `intent_settlement` to call
+/// `lock_obligation`/`release_obligation`; (b) make `deregister_solver` and
+/// `unstake` check `get_open_obligations` before proceeding. When those land,
+/// this test should be inverted to assert the calls are rejected.
 #[test]
-fn slash_demotes_tier_and_pays_fee_recipient() {
+fn open_obligations_do_not_block_deregister_or_unstake() {
     let ctx = setup();
-    // Bond exactly at the Bronze floor.
-    ctx.register(500 * USDC);
-    // One clean fill → score ~9_001 → qualifies for Bronze (needs >= 1_000).
-    ctx.client().record_fill(
-        &ctx.admin,
-        &ctx.solver,
-        &next_intent(&ctx.env),
-        &(100 * USDC),
-    );
-    assert_eq!(ctx.client().get_tier(&ctx.solver), 1);
+    let writer = with_writer(&ctx);
+    let c = ctx.client();
+
+    // Force a non-zero obligation count through the writer path.
+    c.lock_obligation(&writer, &ctx.solver, &intent(&ctx.env, 1));
+    c.lock_obligation(&writer, &ctx.solver, &intent(&ctx.env, 2));
+    assert_eq!(c.get_open_obligations(&ctx.solver), 2);
+    assert!(c.has_obligation(&ctx.solver, &intent(&ctx.env, 1)));
+
+    // `unstake` succeeds despite the open obligations.
+    ctx.mint(&ctx.solver, 1_000 * USDC);
+    c.stake(&ctx.solver, &(1_000 * USDC));
+    c.unstake(&ctx.solver, &(1_000 * USDC));
+    assert_eq!(c.get_open_obligations(&ctx.solver), 2);
+
+    // `deregister_solver` also succeeds despite the open obligations.
+    c.deregister_solver(&ctx.solver);
+    assert!(c.get_solver(&ctx.solver).is_none());
+    assert_eq!(c.get_solver_count(), 0);
 }
 
 // ─── Tier demotion on slash ────────────────────────────────────────────────
