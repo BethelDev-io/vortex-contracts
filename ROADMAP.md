@@ -1,6 +1,6 @@
 # Vortex Protocol Public Roadmap
 
-**Last updated:** 2026-09-24
+**Last updated:** 2026-10-22
 
 This document consolidates forward-looking work, deferred features, and known limitations scattered across `SECURITY.md`, design docs, and the README into a single, community-visible roadmap. It is a **thematic, high-level view** of what the team considers important future work, organized by category and current status.
 
@@ -62,6 +62,30 @@ This document consolidates forward-looking work, deferred features, and known li
 | Arbiter election & dispute resolution (future) | 🚫 Out of Scope (v1) | Reputation-weighted jury for user-solver disputes; deferred pending solver reputation stabilization | docs/dispute-resolution-design.md |
 
 **Coordination:** Issues #112, #302 establish the governance processes. Issue #37 builds the on-chain treasury contract. See `docs/114-multisig-admin-design.md`, `docs/treasury-spending-governance.md`.
+
+---
+
+## 3a. New Contract Wave — Governor, Backstop Vault, Treasury Streams, Fee Router & Timelock
+
+**Goal:** Ship a full governance and treasury stack — on-chain proposal/voting, a collateral backstop, streaming treasury disbursements, protocol fee routing, and a standalone timelock controller — to underpin the community-governance vision in section 3.
+
+> **Status note:** All five contracts exist in the codebase today but are **not yet production-ready**. Each carries known functional gaps tracked in issues #508-#511 and the companion issues in that batch. Use the ⚠️ marker below for items that are merged but not deployable without further work.
+
+**Status legend addition:**
+- ⚠️ **Shipped (not production-ready):** Code merged; known gaps remain before mainnet use.
+
+| Item | Status | Details | Issue(s) |
+|------|--------|---------|----------|
+| **Governor** contract | ⚠️ Shipped (not production-ready) | On-chain proposal creation, voting, and execution flow. Core lifecycle present; quorum/threshold logic and integration with `intent_settlement` admin operations require hardening before production use. | #508 |
+| **Backstop Vault** contract | ⚠️ Shipped (not production-ready) | Collateral reserve vault providing a last-resort backstop for under-collateralised slashes. Deposit/withdraw mechanics present; redemption-under-shortfall path and collusion-risk mitigations (see `docs/369-backstop-collusion-analysis.md`) not yet complete. | #508, #369 |
+| **Treasury Streams** contract | ⚠️ Shipped (not production-ready) | Continuous streaming of protocol fees to designated recipients. Stream creation and cancellation implemented; rate-change governance hook and safe-transfer edge cases need review. | #508 |
+| **Fee Router** contract | ⚠️ Shipped (not production-ready) | Routes incoming protocol fees to Treasury Streams and/or the Backstop Vault according to an admin-configured split. Routing logic present; split-update timelock and multi-recipient validation incomplete. | #508 |
+| **Timelock** (standalone) contract | ⚠️ Shipped (not production-ready) | Standalone timelock controller (separate from the `propose_*/execute_*` pattern already embedded in `intent_settlement`). Intended to wrap Governor execution with a configurable delay. Delay parameterisation and cancellation path require final review. | #508 |
+| Governor × Timelock integration | 🔄 In Progress | Wire Governor proposal execution through the standalone Timelock; align delay with the 14-day convention used elsewhere. | #508 |
+| Backstop Vault × Fee Router integration | 🔄 In Progress | Automated top-up path: Fee Router directs a configurable percentage of protocol fees into the Backstop Vault reserve. | #508, #369 |
+| Production-readiness audit (all five contracts) | 🎯 Not Started | Focused audit covering quorum logic, streaming arithmetic overflow, fee-split invariants, and timelock bypass vectors before any mainnet deployment. | #508 |
+
+**Coordination:** This block of work is tracked collectively under issue #508 with per-contract sub-issues. See `docs/369-backstop-collusion-analysis.md` for the backstop risk analysis. The standalone Timelock is intentionally distinct from the timelock already embedded in `intent_settlement`; both must remain in sync on delay values.
 
 ---
 

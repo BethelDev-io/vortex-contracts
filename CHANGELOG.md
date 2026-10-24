@@ -11,6 +11,46 @@ first deploys to mainnet.
 
 ### Added
 
+- **`governor` contract — on-chain proposal/voting lifecycle (issue #508).**
+  New `governor/` crate implementing proposal creation, per-address voting,
+  quorum tracking, and permissionless execution once a proposal passes. Core
+  state machine (`Pending → Active → Succeeded/Defeated → Queued → Executed`)
+  is present. Known gaps: quorum/threshold constants are not yet tuneable via
+  admin config, and the execution hook into `intent_settlement` admin operations
+  is not wired. Not yet production-ready; tracked in issue #508.
+
+- **`backstop_vault` contract — last-resort collateral reserve (issue #508).**
+  New `backstop_vault/` crate providing a deposit/withdraw vault that can be
+  drawn on to cover under-collateralised slash shortfalls. Collusion-risk
+  mitigations documented in `docs/369-backstop-collusion-analysis.md` are not
+  yet fully implemented; the redemption-under-shortfall path requires further
+  hardening before mainnet use. Not yet production-ready; tracked in issue #508.
+
+- **`treasury_streams` contract — continuous protocol-fee streaming (issue #508).**
+  New `treasury_streams/` crate supporting creation and cancellation of
+  per-second token streams to designated recipients. Stream creation and
+  cancellation are functional. Rate-change governance hook and safe-transfer
+  edge cases (zero-balance flush, stream expiry without explicit cancel) need
+  review. Not yet production-ready; tracked in issue #508.
+
+- **`fee_router` contract — protocol-fee distribution router (issue #508).**
+  New `fee_router/` crate routing incoming protocol fees to `treasury_streams`
+  and/or `backstop_vault` according to an admin-configured split ratio. Core
+  routing logic is present. Split-update timelock and multi-recipient input
+  validation are incomplete. Not yet production-ready; tracked in issue #508.
+
+- **`timelock` contract — standalone timelock controller (issue #508).**
+  New `timelock/` crate providing a configurable-delay execution controller,
+  distinct from the `propose_*/execute_*` pattern embedded in
+  `intent_settlement`. Intended to wrap `governor` proposal execution. Delay
+  parameterisation and the cancellation path require final review before
+  production use. Not yet production-ready; tracked in issue #508.
+
+- **`intent_periphery` contract — intent convenience layer (issue #508).**
+  New `intent_periphery/` crate exposing higher-level helpers built on top of
+  `intent_settlement` (e.g. single-call submit-and-accept flows for testing and
+  integrations). Not yet production-ready; tracked in issue #508.
+
 - **CI: Enforce CHANGELOG.md updates (issue #294).** A new CI job verifies that
   every PR changing `intent_settlement/src/` or `proof_registry/src/` includes a
   corresponding update to `CHANGELOG.md`. An escape hatch (`no-changelog-needed`
