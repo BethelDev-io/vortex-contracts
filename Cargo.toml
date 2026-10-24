@@ -7,6 +7,10 @@ members = [
   "reputation_badge",
   "treasury_streams",
   "fee_router",
+  "governor",
+  "backstop_vault",
+  "intent_periphery",
+  "timelock",
 ]
 resolver = "2"
 
