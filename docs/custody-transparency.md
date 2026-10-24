@@ -46,6 +46,36 @@ This document publicly discloses the custody setup for the `admin` and `fee_reci
 
 ---
 
+## Contract-Custodied Funds
+
+Beyond the `admin` and `fee_recipient` keys, some contracts custody third-party funds directly. This section discloses those custody surfaces, who can move the funds, and what authority the admin/governor holds over them.
+
+### `backstop_vault`
+
+| Property | Value |
+|----------|-------|
+| **What is custodied** | Real LP deposits, transferred in via `deposit()` and held by the contract |
+| **Who can move funds** | Settlement-only callbacks `cover()` and `receive_income()` (move funds as part of settlement); LPs via `withdraw()` (LP-initiated, for their own position) |
+| **Admin / governor authority** | `set_emergency_mode` (admin can toggle emergency mode; does not itself move LP funds) |
+| **Network** | Staging / Pre-mainnet only |
+
+**Status note:** LP deposits are held by the contract until withdrawn by the LP or consumed through settlement callbacks. The admin's `set_emergency_mode` authority is a liveness/safety control and is not a path to arbitrarily move LP funds.
+
+---
+
+### `treasury_streams`
+
+| Property | Value |
+|----------|-------|
+| **What is custodied** | Escrowed stream deposits (tokens escrowed at stream creation and released over the stream's lifetime) |
+| **Who can move funds** | Governor via `create_stream()` / `cancel()`; stream recipients via `withdraw()` |
+| **Admin / governor authority** | Governor role (creates and cancels streams, controlling escrow lifecycle) |
+| **Network** | Staging / Pre-mainnet only |
+
+**Status note:** Deposited tokens are escrowed by the contract and released to recipients over time or returned on cancellation. The governor role controls stream lifecycle but does not have an arbitrary sweep path over escrowed funds.
+
+---
+
 ## Key Rotation and Update Procedure
 
 Whenever the admin key or fee recipient key is rotated:
@@ -148,6 +178,7 @@ A: No. `transfer_admin` and `propose_fee_recipient` / `accept_fee_recipient` bot
 | Date | Change | Justification |
 |------|--------|---------------|
 | 2026-09-24 | Initial document created | Issue #299; pre-mainnet state documented |
+| 2026-09-24 | Added "Contract-Custodied Funds" section covering `backstop_vault` and `treasury_streams` | Issue #498; disclose contract-level custody of LP deposits and escrowed stream deposits |
 
 ---
 

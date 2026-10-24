@@ -1,8 +1,20 @@
 # Issue #351: Module Refactoring Plan for intent_settlement
 
+## Status (issue #479)
+
+**The module split described in this document was not pursued.**
+
+- The unused scaffold at `intent_settlement/src/modules/mod.rs` (which declared twelve
+  submodules that never existed and was never wired into `lib.rs`) has been **removed**.
+- `intent_settlement/src/lib.rs` remains the single source file for the contract.
+- The implementation checklist below is **not done** and is retained only as historical
+  design documentation; its items are superseded by this status section.
+- The 4,989-line baseline cited below is stale; `lib.rs` has grown since this plan was
+  authored.
+
 ## Overview
 
-Split `intent_settlement/src/lib.rs` (4989 lines) into 13 cohesive modules while maintaining **byte-for-byte identical ABI**.
+Split `intent_settlement/src/lib.rs` (4989 lines at the time this plan was written) into 13 cohesive modules while maintaining **byte-for-byte identical ABI**.
 
 ## Module Structure
 
@@ -181,22 +193,26 @@ Internal helpers (require_admin, require_not_paused, etc.) live in storage.rs or
 
 ## Implementation Checklist
 
-- [ ] Create module directory structure (modules/*)
-- [ ] Move types.rs, errors.rs, events.rs to modules/
-- [ ] Extract admin functions → admin.rs
-- [ ] Extract config functions → config.rs
-- [ ] Extract allowlist functions → allowlist.rs
-- [ ] Extract bond functions → bonds.rs
-- [ ] Extract intent functions → intents.rs
-- [ ] Extract bid functions → bids.rs
-- [ ] Extract dispute functions → disputes.rs
-- [ ] Extract backstop functions → backstop.rs
-- [ ] Extract view functions → views.rs
-- [ ] Extract storage helpers → storage.rs
-- [ ] Update lib.rs with single #[contractimpl] delegating to modules
-- [ ] Verify ABI: `stellar contract inspect` produces identical spec
-- [ ] Verify wasm size within ±1% of original
-- [ ] Update Makefile (if any per-module builds needed)
+> **Not done — superseded by issue #479.** The split was not pursued; the
+> `modules/` scaffold was removed and `lib.rs` remains the single source file.
+> These items are kept for historical reference only.
+
+- [ ] ~~Create module directory structure (modules/*)~~ (not done — scaffold removed)
+- [ ] ~~Move types.rs, errors.rs, events.rs to modules/~~ (not done)
+- [ ] ~~Extract admin functions → admin.rs~~ (not done)
+- [ ] ~~Extract config functions → config.rs~~ (not done)
+- [ ] ~~Extract allowlist functions → allowlist.rs~~ (not done)
+- [ ] ~~Extract bond functions → bonds.rs~~ (not done)
+- [ ] ~~Extract intent functions → intents.rs~~ (not done)
+- [ ] ~~Extract bid functions → bids.rs~~ (not done)
+- [ ] ~~Extract dispute functions → disputes.rs~~ (not done)
+- [ ] ~~Extract backstop functions → backstop.rs~~ (not done)
+- [ ] ~~Extract view functions → views.rs~~ (not done)
+- [ ] ~~Extract storage helpers → storage.rs~~ (not done)
+- [ ] ~~Update lib.rs with single #[contractimpl] delegating to modules~~ (not done)
+- [ ] ~~Verify ABI: `stellar contract inspect` produces identical spec~~ (not applicable — no split)
+- [ ] ~~Verify wasm size within ±1% of original~~ (not applicable — no split)
+- [ ] ~~Update Makefile (if any per-module builds needed)~~ (not applicable — no split)
 
 ## Testing & Verification
 

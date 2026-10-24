@@ -28,12 +28,25 @@
 //! the core). Cross-contract calls to `settlement` are therefore safe: a
 //! re-entrant call from the core back into the periphery would be a no-op
 //! (no funds, no side effects).
+//!
+//! ## Batched views
+//!
+//! Every proxy on this contract is a one-view passthrough, so a consumer that
+//! needs several pieces of aggregate state pays one client→periphery round
+//! trip *per view*. `get_dashboard_snapshot()` bundles the two views the
+//! protocol dashboard always needs together — `get_stats()` and
+//! `get_protocol_health()` (issue #534) — into a single call, returning them
+//! under the [`SNAPSHOT_KEY_STATS`] and [`SNAPSHOT_KEY_PROTOCOL_HEALTH`] keys.
+//!
+//! The bundle carries the core's **raw** values, exactly like the individual
+//! proxies, so the periphery never duplicates the core's struct definitions
+//! and can be upgraded independently of them.
 
 #![no_std]
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, BytesN, Env,
-    String, Symbol, Vec,
+    IntoVal, Map, Symbol, Val, Vec,
 };
 
 // ─── Storage keys ─────────────────────────────────────────────────────────────
@@ -55,6 +68,14 @@ pub enum Error {
     NotInitialized = 2,
     Unauthorized = 3,
 }
+
+// ─── Batched view payloads ────────────────────────────────────────────────────
+
+/// Key under which the batched snapshot carries the core's `get_stats()` view.
+pub const SNAPSHOT_KEY_STATS: &str = "stats";
+/// Key under which the batched snapshot carries the core's
+/// `get_protocol_health()` view.
+pub const SNAPSHOT_KEY_PROTOCOL_HEALTH: &str = "protocol_health";
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
 
@@ -115,11 +136,7 @@ impl IntentPeriphery {
     /// here and keeps periphery upgrades independent of struct field additions.
     pub fn get_stats(env: Env) -> soroban_sdk::Val {
         let settlement = Self::load_settlement(&env);
-        env.invoke_contract(
-            &settlement,
-            &Symbol::new(&env, "get_stats"),
-            Vec::new(&env),
-        )
+        env.invoke_contract(&settlement, &Symbol::new(&env, "get_stats"), Vec::new(&env))
     }
 
     /// Proxy: `settlement.list_solvers(start, limit)` — paginated solver list.
@@ -195,6 +212,58 @@ impl IntentPeriphery {
             &Symbol::new(&env, "get_protocol_health"),
             Vec::new(&env),
         )
+    }
+
+    /// Batched view: `settlement.get_stats()` **and**
+    /// `settlement.get_protocol_health()` in a single cross-contract round
+    /// trip (issue #534).
+    ///
+    /// Every other proxy on this contract is a one-view passthrough, so a
+    /// dashboard that wants more than one piece of aggregate state still needs
+    /// one cross-contract call *per view* through the periphery. This bundles
+    /// the two views the protocol dashboard always needs together into one
+    /// call, which is exactly the use case the crate's own module doc
+    /// describes ("aggregates or re-exposes it to dashboards and indexers").
+    ///
+    /// The bundle is returned as a map with two well-known keys:
+    ///
+    /// * [`SNAPSHOT_KEY_STATS`] (`"stats"`) — `settlement.get_stats()`, the
+    ///   protocol-level aggregate counters.
+    /// * [`SNAPSHOT_KEY_PROTOCOL_HEALTH`] (`"protocol_health"`) —
+    ///   `settlement.get_protocol_health()`, the aggregate health/pause status.
+    ///
+    /// The two views are the ones issue #494 ("Add dashboard sections for the
+    /// five new contracts") asks the periphery to surface as "proxied
+    /// health/stats views".
+    ///
+    /// The individual proxies are **not** removed — this is additive, and a
+    /// client that wants a single view can still call it directly.
+    ///
+    /// Like the individual proxies, the bundled values are returned **raw**
+    /// (the very same `Val`s the individual proxies return) so the periphery
+    /// keeps no copy of the core's struct definitions and can be upgraded
+    /// independently of them. A client decodes each entry with the core's
+    /// published ABI.
+    ///
+    /// The two core views are read-only, so batching them cannot change any
+    /// observable behaviour: each bundled value is exactly what the
+    /// corresponding individual proxy would have returned.
+    pub fn get_dashboard_snapshot(env: Env) -> Map<Symbol, Val> {
+        let settlement = Self::load_settlement(&env);
+        let stats =
+            env.invoke_contract(&settlement, &Symbol::new(&env, "get_stats"), Vec::new(&env));
+        let protocol_health = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_protocol_health"),
+            Vec::new(&env),
+        );
+        let mut snapshot = Map::new(&env);
+        snapshot.set(Symbol::new(&env, SNAPSHOT_KEY_STATS), stats);
+        snapshot.set(
+            Symbol::new(&env, SNAPSHOT_KEY_PROTOCOL_HEALTH),
+            protocol_health,
+        );
+        snapshot
     }
 
     // ── Internal ──────────────────────────────────────────────────────────────
