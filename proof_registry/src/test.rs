@@ -630,3 +630,52 @@ fn mock_remove_proof_clears_stored_record() {
     c.mock_remove_proof(&intent_id);
     assert!(!c.has_proof(&intent_id));
 }
+
+// ─── Proptest: payload decoding (nightly fuzz target) ────────────────────────
+
+mod proptest_payload {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Any 102-byte payload whose chain matches the envelope decodes to the
+        /// exact amount and chain that were encoded.
+        #[test]
+        fn proptest_payload_roundtrip(
+            seed in any::<u8>(),
+            chain in 1u16..=u16::MAX,
+            amount in any::<i128>(),
+            sequence in any::<u64>(),
+        ) {
+            let ctx = setup();
+            let emitter = emitter_addr(&ctx.env, 7);
+            ctx.client().set_authorized_emitter(&(chain as u32), &emitter);
+            let id = make_intent_id(&ctx.env, seed);
+            let vaa = build_vaa(&ctx.env, chain, &emitter, sequence, &make_payload(&id, chain, amount));
+            ctx.client().receive_message(&vaa);
+            let rec = ctx.client().get_proof(&id).unwrap();
+            prop_assert_eq!(rec.src_amount, amount);
+            prop_assert_eq!(rec.src_chain_id, chain as u32);
+            prop_assert_eq!(rec.vaa_sequence, sequence);
+        }
+
+        /// Arbitrary payload bytes never panic outside the contract's typed
+        /// errors: wrong length → InvalidPayload, otherwise stored or rejected
+        /// with a chain mismatch.
+        #[test]
+        fn proptest_payload_arbitrary_bytes_fail_closed(
+            payload in proptest::collection::vec(any::<u8>(), 0..160),
+        ) {
+            let ctx = setup();
+            let emitter = emitter_addr(&ctx.env, 7);
+            ctx.client().set_authorized_emitter(&2u32, &emitter);
+            let vaa = build_vaa(&ctx.env, 2, &emitter, 1, &payload);
+            let res = ctx.client().try_receive_message(&vaa);
+            if payload.len() != 102 {
+                prop_assert_eq!(res, Err(Ok(Error::InvalidPayload.into())));
+            } else {
+                prop_assert!(res.is_ok() || res == Err(Ok(Error::EmitterChainMismatch.into())));
+            }
+        }
+    }
+}
