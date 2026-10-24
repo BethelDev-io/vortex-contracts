@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Check for resource cost drift in intent_settlement contract.
+# Check for resource cost drift in a contract crate (default: intent_settlement).
 #
 # This script regenerates resource cost measurements and compares them against
 # the baseline published in docs/149-resource-cost-per-entrypoint.md. Any
@@ -8,7 +8,11 @@
 # fails the check.
 #
 # Usage:
-#   ./scripts/check-resource-cost-drift.sh
+#   ./scripts/check-resource-cost-drift.sh [<crate>|all]
+#
+# <crate> is a crate directory with a drift baseline: intent_settlement uses
+# docs/149-resource-cost-per-entrypoint.md; any other crate uses
+# docs/149-resource-cost-<crate>.md. `all` checks every crate that has one.
 #
 # Exit codes:
 #   0 — All costs within tolerance
@@ -19,8 +23,32 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-INTENT_SETTLEMENT="$REPO_ROOT/intent_settlement"
-DOC_FILE="$REPO_ROOT/docs/149-resource-cost-per-entrypoint.md"
+CRATE="${1:-intent_settlement}"
+
+baseline_doc() {
+  if [ "$1" = "intent_settlement" ]; then
+    echo "$REPO_ROOT/docs/149-resource-cost-per-entrypoint.md"
+  else
+    echo "$REPO_ROOT/docs/149-resource-cost-$1.md"
+  fi
+}
+
+if [ "$CRATE" = "all" ]; then
+  STATUS=0
+  for dir in "$REPO_ROOT"/*/; do
+    name="$(basename "$dir")"
+    [ -f "$dir/Cargo.toml" ] && [ -f "$(baseline_doc "$name")" ] || continue
+    bash "${BASH_SOURCE[0]}" "$name" || STATUS=1
+  done
+  exit $STATUS
+fi
+
+CRATE_DIR="$REPO_ROOT/$CRATE"
+DOC_FILE="$(baseline_doc "$CRATE")"
+if [ ! -f "$CRATE_DIR/Cargo.toml" ] || [ ! -f "$DOC_FILE" ]; then
+  echo "ERROR: crate '$CRATE' needs $CRATE/Cargo.toml and a baseline at $DOC_FILE" >&2
+  exit 1
+fi
 
 # Tolerance: ±10% (as documented in issue #285)
 TOLERANCE_PERCENT=10
@@ -33,6 +61,7 @@ NC='\033[0m' # No Color
 
 echo "=== Resource Cost Drift Detection ==="
 echo "Repository: $REPO_ROOT"
+echo "Crate: $CRATE"
 echo "Tolerance: ±${TOLERANCE_PERCENT}%"
 echo ""
 
@@ -82,7 +111,7 @@ echo ""
 echo "Regenerating measurements using: cargo test --features testutils bench::resource_cost_report"
 echo ""
 
-cd "$INTENT_SETTLEMENT"
+cd "$CRATE_DIR"
 
 # Capture benchmark output
 BENCH_OUTPUT=$(mktemp)
