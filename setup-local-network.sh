@@ -8,6 +8,8 @@
 #   ./setup-local-network.sh clean     — stop and remove volumes
 #   ./setup-local-network.sh logs      — tail logs
 #   ./setup-local-network.sh status    — check network status
+#   ./setup-local-network.sh deploy-timelock <admin> [min_delay]
+#                                      — build and deploy the standalone timelock
 
 set -euo pipefail
 
@@ -168,6 +170,29 @@ check_status() {
 }
 
 # ---------------------------------------------------------------------------
+# Deploy the standalone timelock contract to the local network
+# ---------------------------------------------------------------------------
+deploy_timelock() {
+  local admin="${1:?usage: $0 deploy-timelock <admin_address> [min_delay_secs]}"
+  local min_delay="${2:-60}"
+  local source="${STELLAR_SOURCE:-default}"
+
+  info "Building timelock..."
+  (cd "$(dirname "$0")/timelock" && stellar contract build)
+
+  local wasm
+  wasm="$(find "$(dirname "$0")" -path '*/wasm32-unknown-unknown/release/*timelock*.wasm' ! -name '*.optimized.wasm' | head -n1)"
+  [ -n "$wasm" ] || { error "timelock wasm not found after build"; exit 1; }
+
+  info "Deploying timelock (admin=$admin, min_delay=${min_delay}s)..."
+  local id
+  id="$(stellar contract deploy --wasm "$wasm" --source "$source" --network "$NETWORK_NAME" \
+    -- --admin "$admin" --proposers "[\"$admin\"]" --executors "[\"$admin\"]" \
+    --cancellers "[\"$admin\"]" --min_delay "$min_delay")"
+  success "timelock deployed: $id"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
@@ -189,8 +214,12 @@ main() {
     status)
       check_status
       ;;
+    deploy-timelock)
+      shift
+      deploy_timelock "$@"
+      ;;
     *)
-      echo "Usage: $0 {start|stop|clean|logs|status}"
+      echo "Usage: $0 {start|stop|clean|logs|status|deploy-timelock}"
       echo ""
       echo "Commands:"
       echo "  start   — start the local network and configure Stellar CLI"
@@ -198,6 +227,7 @@ main() {
       echo "  clean   — stop and remove volumes (destructive)"
       echo "  logs    — tail network logs"
       echo "  status  — check if network is running"
+      echo "  deploy-timelock <admin> [min_delay] — deploy the standalone timelock"
       exit 1
       ;;
   esac
