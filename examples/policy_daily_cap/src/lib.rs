@@ -208,3 +208,6 @@ impl PolicyDailyCap {
         }
     }
 }
+
+#[cfg(test)]
+mod test;
