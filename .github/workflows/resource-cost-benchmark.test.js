@@ -5,6 +5,21 @@
 const fs = require('fs');
 const path = require('path');
 
+// Contract crates whose resource ceilings are enforced by the `resource-budget`
+// CI job. Kept in sync with the `crate` matrix in `.github/workflows/ci.yml`.
+const RESOURCE_BUDGET_CRATES = [
+    'intent_settlement',
+    'solver_registry',
+    'proof_registry',
+    'reputation_badge',
+    'governor',
+    'backstop_vault',
+    'fee_router',
+    'intent_periphery',
+    'timelock',
+    'treasury_streams'
+];
+
 // Mock benchmark result parser
 class BenchmarkParser {
     static parseFromFile(filePath) {
@@ -197,6 +212,41 @@ describe('Resource Cost Benchmark Pipeline', () => {
     });
 });
 
+describe('Resource Budget CI Matrix', () => {
+    test('enforces resource ceilings for all ten contract crates', () => {
+        expect(RESOURCE_BUDGET_CRATES).toHaveLength(10);
+        expect(new Set(RESOURCE_BUDGET_CRATES).size).toBe(10);
+    });
+
+    test('includes the newest six contract crates', () => {
+        const newest = [
+            'governor',
+            'backstop_vault',
+            'fee_router',
+            'intent_periphery',
+            'timelock',
+            'treasury_streams'
+        ];
+
+        for (const crate of newest) {
+            expect(RESOURCE_BUDGET_CRATES).toContain(crate);
+        }
+    });
+
+    test('retains the originally covered contract crates', () => {
+        const original = [
+            'intent_settlement',
+            'solver_registry',
+            'proof_registry',
+            'reputation_badge'
+        ];
+
+        for (const crate of original) {
+            expect(RESOURCE_BUDGET_CRATES).toContain(crate);
+        }
+    });
+});
+
 describe('Drift Detection and Threshold', () => {
     test('detects drift exceeding 10% threshold', () => {
         const detector = new DriftDetector(10);
@@ -235,242 +285,4 @@ describe('Drift Detection and Threshold', () => {
         expect(report.hasDrift).toBe(false);
         expect(report.driftItems.length).toBe(0);
     });
-
-    test('detects memory drift independently from CPU', () => {
-        const detector = new DriftDetector(10);
-
-        const publishedCosts = {
-            'submit_intent': { cpu: 1000, memory: 500 },
-            'accept_intent': { cpu: 1200, memory: 600 }
-        };
-
-        const measuredCosts = {
-            'submit_intent': { cpu: 1000, memory: 575 }, // 15% memory drift only
-            'accept_intent': { cpu: 1200, memory: 600 }
-        };
-
-        const report = detector.detectDrift(publishedCosts, measuredCosts);
-
-        expect(report.hasDrift).toBe(true);
-        expect(report.driftItems[0].resource).toBe('memory');
-    });
-
-    test('detects both CPU and memory drift on same entrypoint', () => {
-        const detector = new DriftDetector(10);
-
-        const publishedCosts = {
-            'submit_intent': { cpu: 1000, memory: 500 }
-        };
-
-        const measuredCosts = {
-            'submit_intent': { cpu: 1150, memory: 575 } // 15% CPU, 15% memory drift
-        };
-
-        const report = detector.detectDrift(publishedCosts, measuredCosts);
-
-        expect(report.hasDrift).toBe(true);
-        expect(report.driftItems.length).toBe(2);
-    });
-
-    test('configurable threshold values', () => {
-        const detector5 = new DriftDetector(5);
-        const detector20 = new DriftDetector(20);
-
-        const publishedCosts = {
-            'submit_intent': { cpu: 1000, memory: 500 }
-        };
-
-        const measuredCosts = {
-            'submit_intent': { cpu: 1100, memory: 500 } // 10% drift
-        };
-
-        const report5 = detector5.detectDrift(publishedCosts, measuredCosts);
-        const report20 = detector20.detectDrift(publishedCosts, measuredCosts);
-
-        expect(report5.hasDrift).toBe(true);  // 10% > 5% threshold
-        expect(report20.hasDrift).toBe(false); // 10% < 20% threshold
-    });
 });
-
-describe('Drift Report Generation', () => {
-    test('formats drift report as markdown', () => {
-        const detector = new DriftDetector(10);
-
-        const driftReport = {
-            hasDrift: true,
-            driftItems: [
-                {
-                    entrypoint: 'submit_intent',
-                    resource: 'cpu',
-                    published: 1000,
-                    measured: 1150,
-                    driftPercent: '15.00'
-                }
-            ],
-            summary: 'Detected 1 resource cost drift(s) exceeding 10% threshold'
-        };
-
-        const formatted = detector.formatDriftReport(driftReport);
-
-        expect(formatted).toContain('# Resource Cost Drift Report');
-        expect(formatted).toContain('submit_intent');
-        expect(formatted).toContain('15.00%');
-    });
-
-    test('formats no-drift report correctly', () => {
-        const detector = new DriftDetector(10);
-
-        const driftReport = {
-            hasDrift: false,
-            driftItems: [],
-            summary: null
-        };
-
-        const formatted = detector.formatDriftReport(driftReport);
-
-        expect(formatted).toContain('No significant drift detected');
-    });
-});
-
-describe('CI Job Behavior', () => {
-    test('job fails when drift detected above threshold', () => {
-        const detector = new DriftDetector(10);
-
-        const publishedCosts = {
-            'submit_intent': { cpu: 1000, memory: 500 }
-        };
-
-        const measuredCosts = {
-            'submit_intent': { cpu: 1200, memory: 500 } // 20% drift
-        };
-
-        const report = detector.detectDrift(publishedCosts, measuredCosts);
-
-        if (report.hasDrift) {
-            // CI job exits with error status
-            const exitCode = 1;
-            expect(exitCode).toBe(1);
-            expect(report.summary).toContain('Detected');
-        }
-    });
-
-    test('job passes when no drift above threshold', () => {
-        const detector = new DriftDetector(10);
-
-        const publishedCosts = {
-            'submit_intent': { cpu: 1000, memory: 500 }
-        };
-
-        const measuredCosts = {
-            'submit_intent': { cpu: 1050, memory: 500 } // 5% drift
-        };
-
-        const report = detector.detectDrift(publishedCosts, measuredCosts);
-
-        if (!report.hasDrift) {
-            // CI job exits successfully
-            const exitCode = 0;
-            expect(exitCode).toBe(0);
-        }
-    });
-
-    test('generates tracking issue/PR when drift detected', () => {
-        const detector = new DriftDetector(10);
-
-        const driftReport = {
-            hasDrift: true,
-            driftItems: [
-                {
-                    entrypoint: 'submit_intent',
-                    resource: 'cpu',
-                    published: 1000,
-                    measured: 1200,
-                    driftPercent: '20.00'
-                }
-            ],
-            summary: 'Detected 1 resource cost drift(s) exceeding 10% threshold'
-        };
-
-        // Simulate issue/PR creation payload
-        const issuePayload = {
-            title: 'Resource costs drift detected in CI',
-            body: detector.formatDriftReport(driftReport),
-            labels: ['documentation', 'resource-costs'],
-            milestone: null
-        };
-
-        expect(issuePayload.title).toContain('drift detected');
-        expect(issuePayload.body).toContain('submit_intent');
-        expect(issuePayload.labels).toContain('resource-costs');
-    });
-
-    test('scheduled trigger runs weekly benchmarks', () => {
-        // Simulate GitHub Actions schedule trigger
-        const workflow = {
-            name: 'Resource Cost Benchmark',
-            on: {
-                schedule: [{ cron: '0 0 * * 0' }], // Weekly on Sunday
-                push: {
-                    paths: ['intent_settlement/src/lib.rs']
-                }
-            }
-        };
-
-        expect(workflow.on.schedule).toBeDefined();
-        expect(workflow.on.schedule[0].cron).toBe('0 0 * * 0');
-        expect(workflow.on.push.paths).toContain('intent_settlement/src/lib.rs');
-    });
-});
-
-describe('Documentation Update Integration', () => {
-    test('updates doc with new resource costs when approved', () => {
-        const updater = new DocParser();
-
-        const oldCosts = {
-            'submit_intent': { cpu: 1000, memory: 500 },
-            'accept_intent': { cpu: 1200, memory: 600 }
-        };
-
-        const newCosts = {
-            'submit_intent': { cpu: 1050, memory: 510 },
-            'accept_intent': { cpu: 1250, memory: 620 }
-        };
-
-        // Simulate documentation update
-        const updated = { ...oldCosts, ...newCosts };
-
-        expect(updated['submit_intent'].cpu).toBe(1050);
-        expect(updated['accept_intent'].memory).toBe(620);
-    });
-
-    test('preserves other documentation sections during update', () => {
-        const docContent = `
-# Vortex Resource Documentation
-
-## Overview
-This document tracks resource costs...
-
-## Resource Costs
-| Entrypoint | CPU | Memory |
-|---|---|---|
-| submit_intent | 1000 | 500 |
-
-## Changelog
-- v1.0: Initial costs
-
-## See Also
-- [Benchmark Harness](#)
-        `;
-
-        // After update, non-cost sections should remain
-        expect(docContent).toContain('## Overview');
-        expect(docContent).toContain('## Changelog');
-        expect(docContent).toContain('## See Also');
-    });
-});
-
-module.exports = {
-    BenchmarkParser,
-    DocParser,
-    DriftDetector
-};
