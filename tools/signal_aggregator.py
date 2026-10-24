@@ -310,16 +310,52 @@ class SignalAggregator:
     @staticmethod
     def _verify_signature(message: str, signature: str, address: str) -> bool:
         """
-        Verify a Stellar signature.
+        Verify that *signature* is a valid Ed25519 signature over *message*
+        produced by the Stellar keypair whose public key corresponds to
+        *address*.
 
-        In production, this should use stellar_sdk.verify_tx_envelope_signature
-        or similar. For now, this is a placeholder that returns True if
-        address and signature are non-empty (suitable for testing).
+        The canonical payload is the UTF-8 encoding of *message* (already
+        JSON-serialised and sorted by the caller via ``_canonicalize``).
 
-        TODO: Implement real Stellar signature verification.
+        Verification uses ``stellar_sdk`` (``pip install stellar-sdk``):
+        - ``StrKey.decode_ed25519_public_key`` decodes the G… address to the
+          raw 32-byte Ed25519 public key.
+        - ``base64.b64decode`` decodes the base64-encoded signature to the raw
+          64-byte Ed25519 signature.
+        - ``nacl.signing.VerifyKey`` (PyNaCl, a ``stellar-sdk`` dependency)
+          performs the actual Ed25519 verification.
+
+        Returns ``True`` only when the signature is cryptographically valid.
+        Any decoding error or verification failure returns ``False`` so that
+        callers never see an exception — they see a rejected signal instead.
         """
-        # Placeholder: accept any non-empty signature from a valid address
-        return bool(signature and address.startswith("G"))
+        if not signature or not address:
+            return False
+
+        try:
+            import base64
+            from stellar_sdk import StrKey
+            from nacl.signing import VerifyKey
+            from nacl.exceptions import BadSignatureError
+
+            # Decode the G… Stellar address to the raw 32-byte Ed25519 public key.
+            public_key_bytes: bytes = StrKey.decode_ed25519_public_key(address)
+
+            # The signature is base64-encoded by callers (see module docstring).
+            sig_bytes: bytes = base64.b64decode(signature)
+
+            # The message to verify is the UTF-8 encoding of the canonical JSON.
+            message_bytes: bytes = message.encode("utf-8")
+
+            # PyNaCl's VerifyKey.verify raises BadSignatureError on failure.
+            verify_key = VerifyKey(public_key_bytes)
+            verify_key.verify(message_bytes, sig_bytes)
+            return True
+
+        except Exception:
+            # Covers: BadSignatureError, binascii.Error (bad base64),
+            # ValueError (bad StrKey), ImportError (missing dep), etc.
+            return False
 
 
 def main():
