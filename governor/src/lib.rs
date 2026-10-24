@@ -8,7 +8,7 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol, Vec};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
 
 /// Number of checkpoints retained per account. Bounded so binary search over
 /// the checkpoint history stays cheap and storage stays predictable.
@@ -237,18 +237,35 @@ impl Governor {
     }
 
     /// Queue a succeeded proposal into the timelock.
+    ///
+    /// The proposal's `target`/`function`/`calldata` are submitted to the
+    /// configured `timelock` contract's scheduling entrypoint so the timelock
+    /// owns the delayed execution. The governor records the resulting `eta`.
     pub fn queue(env: Env, proposal_id: u32) -> Result<(), GovernorError> {
         let config = Self::config(&env)?;
         let mut proposal = Self::proposal(&env, proposal_id)?;
         if Self::state_of(&env, &config, &proposal) != ProposalState::Succeeded {
             return Err(GovernorError::ProposalNotSucceeded);
         }
-        proposal.eta = env.ledger().sequence() + config.voting_delay;
+        let eta = env.ledger().sequence() + config.voting_delay;
+        // Schedule the call on the timelock. The timelock's `schedule` entrypoint
+        // takes the target, function, args and the earliest execution ledger.
+        let args: Vec<Val> = Vec::new(&env);
+        env.invoke_contract::<()>(
+            &config.timelock,
+            &Symbol::new(&env, "schedule"),
+            (proposal.target.clone(), proposal.function.clone(), args, eta).into_val(&env),
+        );
+        proposal.eta = eta;
         env.storage().persistent().set(&Self::proposal_key(&env, proposal_id), &proposal);
         Ok(())
     }
 
     /// Execute a queued proposal once the timelock delay has elapsed.
+    ///
+    /// The governor asks the timelock to perform the actual cross-contract call
+    /// before marking the proposal executed, so a "passed and executed"
+    /// proposal has real on-chain effect.
     pub fn execute(env: Env, proposal_id: u32) -> Result<(), GovernorError> {
         let config = Self::config(&env)?;
         let mut proposal = Self::proposal(&env, proposal_id)?;
@@ -261,11 +278,16 @@ impl Governor {
         if env.ledger().sequence() < proposal.eta {
             return Err(GovernorError::TimelockNotReady);
         }
+        // Ask the timelock to execute the scheduled call. The timelock performs
+        // the actual `invoke_contract` on the proposal's target.
+        let args: Vec<Val> = Vec::new(&env);
+        env.invoke_contract::<()>(
+            &config.timelock,
+            &Symbol::new(&env, "execute"),
+            (proposal.target.clone(), proposal.function.clone(), args).into_val(&env),
+        );
         proposal.executed = true;
         env.storage().persistent().set(&Self::proposal_key(&env, proposal_id), &proposal);
-        // The timelock performs the actual call; the governor only records the
-        // transition so state stays consistent with the timelock's execution.
-        let _ = config.timelock;
         Ok(())
     }
 
