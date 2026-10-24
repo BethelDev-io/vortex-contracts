@@ -76,6 +76,16 @@ pub struct Sink {
     pub weight_bps: u32,
 }
 
+impl Sink {
+    /// Maximum allowed length for the account string.
+    pub const MAX_ACCOUNT_LEN: usize = 64;
+
+    /// Validate that the account string is within bounds.
+    pub fn validate(&self) -> bool {
+        self.account.len() <= Self::MAX_ACCOUNT_LEN
+    }
+}
+
 /// A pending, timelocked weight change.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +121,8 @@ pub enum FeeRouterError {
     UnknownToken = 8,
     NothingToClaim = 9,
     TransferFailed = 10,
+    /// Account string exceeds [`Sink::MAX_ACCOUNT_LEN`] characters.
+    InvalidAccountLength = 11,
 }
 
 /// The fee router contract.
@@ -301,6 +313,9 @@ fn validate_sinks(env: &Env, sinks: &Vec<Sink>) -> Result<(), FeeRouterError> {
     let mut sum: u32 = 0;
     for i in 0..len {
         let sink = sinks.get(i).unwrap();
+        if sink.account.len() > Sink::MAX_ACCOUNT_LEN {
+            return Err(FeeRouterError::InvalidAccountLength);
+        }
         for j in 0..i {
             if sinks.get(j).unwrap().account == sink.account {
                 return Err(FeeRouterError::DuplicateSink);
