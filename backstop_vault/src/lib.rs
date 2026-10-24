@@ -555,6 +555,9 @@ impl BackstopVault {
 }
 
 #[cfg(test)]
+mod bench;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Ledger as _};
@@ -603,14 +606,14 @@ mod tests {
         let cooldown_until = deposit_ts + WITHDRAWAL_COOLDOWN_SECS;
         env.ledger().set_timestamp(cooldown_until);
 
-        let (shares, _) = client.get_lp_position(&lp);
+        let (shares, _, _) = client.get_lp_position(&lp);
         assert!(shares > 0);
 
         let assets_out = client.withdraw(&lp, &shares);
         assert!(assets_out > 0);
         assert_eq!(token_client.balance(&lp), assets_out);
 
-        let (remaining, _) = client.get_lp_position(&lp);
+        let (remaining, _, _) = client.get_lp_position(&lp);
         assert_eq!(remaining, 0);
     }
 
@@ -625,7 +628,7 @@ mod tests {
         let cooldown_until = deposit_ts + WITHDRAWAL_COOLDOWN_SECS;
         env.ledger().set_timestamp(cooldown_until - 1);
 
-        let (shares, _) = client.get_lp_position(&lp);
+        let (shares, _, _) = client.get_lp_position(&lp);
         assert!(shares > 0);
 
         let result = client.try_withdraw(&lp, &shares);

@@ -56,6 +56,7 @@ use soroban_sdk::{
 enum DataKey {
     Admin,
     Settlement,
+    PendingSettlement,
 }
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ pub enum Error {
     AlreadyInitialized = 1,
     NotInitialized = 2,
     Unauthorized = 3,
+    NoPendingSettlement = 4,
 }
 
 // ─── Batched view payloads ────────────────────────────────────────────────────
@@ -102,8 +104,15 @@ impl IntentPeriphery {
         );
     }
 
-    /// Admin-only: point the periphery at a new core settlement contract.
-    pub fn set_settlement(env: Env, settlement: Address) {
+    /// Admin-only, step 1 of 2: propose a new core settlement contract.
+    ///
+    /// The live `Settlement` pointer is *not* changed here. The proposal is
+    /// stored under `PendingSettlement` and must be promoted by a second,
+    /// separately-authenticated `accept_settlement` call (two-step pattern,
+    /// see closed issue #118). This gives operators a visibility window in
+    /// which a mistaken or compromised proposal can be noticed before it
+    /// redirects every proxy view in this contract.
+    pub fn propose_settlement(env: Env, settlement: Address) {
         let admin: Address = env
             .storage()
             .instance()
@@ -112,7 +121,30 @@ impl IntentPeriphery {
         admin.require_auth();
         env.storage()
             .instance()
+            .set(&DataKey::PendingSettlement, &settlement);
+        env.events()
+            .publish((Symbol::new(&env, "settlement_proposed"),), settlement);
+    }
+
+    /// Admin-only, step 2 of 2: promote the pending settlement to live.
+    ///
+    /// Panics with `NoPendingSettlement` if no proposal is outstanding.
+    pub fn accept_settlement(env: Env) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+        let settlement: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingSettlement)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NoPendingSettlement));
+        env.storage()
+            .instance()
             .set(&DataKey::Settlement, &settlement);
+        env.storage().instance().remove(&DataKey::PendingSettlement);
         env.events()
             .publish((Symbol::new(&env, "settlement_updated"),), settlement);
     }
@@ -120,6 +152,11 @@ impl IntentPeriphery {
     /// Return the core settlement contract this periphery reads from.
     pub fn get_settlement(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::Settlement)
+    }
+
+    /// Return the proposed-but-not-yet-accepted settlement address, if any.
+    pub fn get_pending_settlement(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PendingSettlement)
     }
 
     // ── Heavy view proxies (issue #376) ───────────────────────────────────────
@@ -214,6 +251,12 @@ impl IntentPeriphery {
         )
     }
 
+    // ── Batched multi-view proxies (issue #534) ─────────────────────────────────
+    //
+    // These functions batch multiple cross-contract view calls into a single
+    // invocation, reducing RPC overhead for dashboards and indexers that need
+    // multiple views simultaneously.
+
     /// Batched view: `settlement.get_stats()` **and**
     /// `settlement.get_protocol_health()` in a single cross-contract round
     /// trip (issue #534).
@@ -266,6 +309,94 @@ impl IntentPeriphery {
         snapshot
     }
 
+    /// Batch: `get_stats` + `get_protocol_health` in one call.
+    ///
+    /// Returns `(stats, health)` as a tuple of two `Val`s.
+    pub fn batch_get_stats_and_health(env: Env) -> (soroban_sdk::Val, soroban_sdk::Val) {
+        let settlement = Self::load_settlement(&env);
+        let stats = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_stats"),
+            Vec::new(&env),
+        );
+        let health = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_protocol_health"),
+            Vec::new(&env),
+        );
+        (stats, health)
+    }
+
+    /// Batch: `list_solvers` + `list_open_intents` in one call.
+    ///
+    /// Returns `(solvers, open_intents)` as a tuple of two `Val`s.
+    pub fn batch_list_solvers_and_intents(env: Env, start: u32, limit: u32) -> (soroban_sdk::Val, soroban_sdk::Val) {
+        let settlement = Self::load_settlement(&env);
+        let solvers = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "list_solvers"),
+            soroban_sdk::vec![&env, start.into(), limit.into()],
+        );
+        let intents = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "list_open_intents"),
+            soroban_sdk::vec![&env, start.into(), limit.into()],
+        );
+        (solvers, intents)
+    }
+
+    /// Batch: `get_solver` + `get_fee_schedule` for a specific solver.
+    ///
+    /// Returns `(solver_record, fee_schedule)` as a tuple of two `Val`s.
+    pub fn batch_get_solver_and_fee_schedule(env: Env, solver: Address) -> (soroban_sdk::Val, soroban_sdk::Val) {
+        let settlement = Self::load_settlement(&env);
+        let solver_record = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_solver"),
+            soroban_sdk::vec![&env, solver.into_val(&env)],
+        );
+        let fee_schedule = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_fee_schedule"),
+            soroban_sdk::vec![&env, solver.into_val(&env)],
+        );
+        (solver_record, fee_schedule)
+    }
+
+    /// Batch: `get_intent` + `get_protocol_health` in one call.
+    ///
+    /// Returns `(intent_record, health)` as a tuple of two `Val`s.
+    pub fn batch_get_intent_and_health(env: Env, intent_id: BytesN<32>) -> (soroban_sdk::Val, soroban_sdk::Val) {
+        let settlement = Self::load_settlement(&env);
+        let intent = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_intent"),
+            soroban_sdk::vec![&env, intent_id.into_val(&env)],
+        );
+        let health = env.invoke_contract(
+            &settlement,
+            &Symbol::new(&env, "get_protocol_health"),
+            Vec::new(&env),
+        );
+        (intent, health)
+    }
+
+    /// Generic batched view: call any two view functions on the settlement contract.
+    ///
+    /// Allows arbitrary composition of view calls. Returns `(result1, result2)`.
+    pub fn batch_two_views(
+        env: Env,
+        fn1: Symbol,
+        args1: Vec<soroban_sdk::Val>,
+        fn2: Symbol,
+        args2: Vec<soroban_sdk::Val>,
+    ) -> (soroban_sdk::Val, soroban_sdk::Val) {
+        let settlement = Self::load_settlement(&env);
+        let r1 = env.invoke_contract(&settlement, &fn1, args1);
+        let r2 = env.invoke_contract(&settlement, &fn2, args2);
+        (r1, r2)
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────────
 
     fn load_settlement(env: &Env) -> Address {
@@ -275,3 +406,6 @@ impl IntentPeriphery {
             .unwrap_or_else(|| panic_with_error!(env, Error::NotInitialized))
     }
 }
+
+#[cfg(test)]
+mod bench;

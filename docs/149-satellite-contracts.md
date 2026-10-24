@@ -1,7 +1,9 @@
 # Resource Budget Ceilings — Satellite Contracts
 
 **Issue:** [#149](https://github.com/vortex-protocol/vortex-contracts/issues/149)
-**Contracts:** `solver_registry` · `proof_registry` · `reputation_badge`
+**Contracts:** `solver_registry` · `proof_registry` · `reputation_badge` ·
+`governor` · `backstop_vault` · `fee_router` · `treasury_streams` ·
+`intent_periphery`
 **Status:** Ceilings defined; regenerate numbers after first test run.
 
 See [`docs/149-intent-settlement.md`](./149-intent-settlement.md) for the
@@ -24,6 +26,26 @@ cargo test --features testutils bench -- --nocapture 2>&1 | grep CEILING_HINT
 
 # reputation_badge
 cd ../reputation_badge
+cargo test --features testutils bench -- --nocapture 2>&1 | grep CEILING_HINT
+
+# governor
+cd ../governor
+cargo test --features testutils bench -- --nocapture 2>&1 | grep CEILING_HINT
+
+# backstop_vault
+cd ../backstop_vault
+cargo test --features testutils bench -- --nocapture 2>&1 | grep CEILING_HINT
+
+# fee_router
+cd ../fee_router
+cargo test --features testutils bench -- --nocapture 2>&1 | grep CEILING_HINT
+
+# treasury_streams
+cd ../treasury_streams
+cargo test --features testutils bench -- --nocapture 2>&1 | grep CEILING_HINT
+
+# intent_periphery
+cd ../intent_periphery
 cargo test --features testutils bench -- --nocapture 2>&1 | grep CEILING_HINT
 ```
 
@@ -120,7 +142,149 @@ below, then commit.
 
 ---
 
-## 4. Ceiling failure playbook
+## 4. `governor`
+
+**Harness:** `governor/src/bench.rs`
+
+### Worst-case fixtures
+
+- `propose` writes a full proposal record (action vector, metadata hash,
+  timestamps) and appends to the active-proposal index.
+- `cast_vote` operates on a proposal with the maximum number of recorded
+  voters so the tally update touches the largest possible ledger entry.
+- `execute` runs the proposal with the largest action vector so every
+  dispatched call is exercised.
+- `finalize` reads the vote tally and writes the terminal proposal state.
+
+### 4.1 Per-entrypoint ceilings
+
+> `_regenerate_` = populate from the first `CEILING_HINT` run.
+
+| Entrypoint | CPU (measured) | CPU ceiling | Mem (measured) | Mem ceiling |
+|---|--:|--:|--:|--:|
+| `initialize` | _regenerate_ | 150,000 | _regenerate_ | 25,000 |
+| `set_voting_period` | _regenerate_ | 130,000 | _regenerate_ | 22,000 |
+| `set_quorum` | _regenerate_ | 130,000 | _regenerate_ | 22,000 |
+| `propose` (max actions) | _regenerate_ | 420,000 | _regenerate_ | 65,000 |
+| `cast_vote` (max voters) | _regenerate_ | 320,000 | _regenerate_ | 48,000 |
+| `finalize` | _regenerate_ | 280,000 | _regenerate_ | 42,000 |
+| `execute` (max actions) | _regenerate_ | 600,000 | _regenerate_ | 90,000 |
+| `get_proposal` | _regenerate_ | 150,000 | _regenerate_ | 25,000 |
+| `get_vote` | _regenerate_ | 120,000 | _regenerate_ | 20,000 |
+| `get_proposal_count` | _regenerate_ | 100,000 | _regenerate_ | 18,000 |
+
+---
+
+## 5. `backstop_vault`
+
+**Harness:** `backstop_vault/src/bench.rs`
+
+### Worst-case fixtures
+
+- `deposit` is called by a first-time depositor so the share-balance entry is
+  created and the total-assets accumulator is updated.
+- `withdraw` drains a position down to zero so the share-balance entry is
+  removed and the total-assets accumulator is decremented.
+- `cover_loss` draws against the largest recorded balance so the loss
+  accounting path touches every affected entry.
+
+### 5.1 Per-entrypoint ceilings
+
+| Entrypoint | CPU (measured) | CPU ceiling | Mem (measured) | Mem ceiling |
+|---|--:|--:|--:|--:|
+| `initialize` | _regenerate_ | 150,000 | _regenerate_ | 25,000 |
+| `set_manager` | _regenerate_ | 130,000 | _regenerate_ | 22,000 |
+| `deposit` (new position) | _regenerate_ | 380,000 | _regenerate_ | 58,000 |
+| `withdraw` (full drain) | _regenerate_ | 380,000 | _regenerate_ | 58,000 |
+| `cover_loss` (max balance) | _regenerate_ | 420,000 | _regenerate_ | 62,000 |
+| `get_balance` | _regenerate_ | 120,000 | _regenerate_ | 20,000 |
+| `get_total_assets` | _regenerate_ | 100,000 | _regenerate_ | 18,000 |
+| `get_share_price` | _regenerate_ | 130,000 | _regenerate_ | 22,000 |
+
+---
+
+## 6. `fee_router`
+
+**Harness:** `fee_router/src/bench.rs`
+
+### Worst-case fixtures
+
+- `route_fees` splits across the maximum number of configured recipients so
+  every transfer and every recipient accumulator write is exercised.
+- `set_split` writes the full recipient vector in a single call.
+- `claim` is called by a recipient with the largest accrued balance.
+
+> **Note:** `fee_router`'s harness is pure Rust and does not yet emit
+> `CEILING_HINT` lines, so the measured columns remain `_regenerate_` until
+> the bench harness is wired up to the Soroban test environment.
+
+### 6.1 Per-entrypoint ceilings
+
+| Entrypoint | CPU (measured) | CPU ceiling | Mem (measured) | Mem ceiling |
+|---|--:|--:|--:|--:|
+| `initialize` | _regenerate_ | 150,000 | _regenerate_ | 25,000 |
+| `set_split` (max recipients) | _regenerate_ | 320,000 | _regenerate_ | 48,000 |
+| `route_fees` (max recipients) | _regenerate_ | 600,000 | _regenerate_ | 90,000 |
+| `claim` (max balance) | _regenerate_ | 280,000 | _regenerate_ | 42,000 |
+| `get_split` | _regenerate_ | 150,000 | _regenerate_ | 25,000 |
+| `get_accrued` | _regenerate_ | 120,000 | _regenerate_ | 20,000 |
+
+---
+
+## 7. `treasury_streams`
+
+**Harness:** `treasury_streams/src/bench.rs`
+
+### Worst-case fixtures
+
+- `create_stream` uses the maximum stream duration so the schedule arithmetic
+  covers the full range.
+- `withdraw` is called at the end of the stream so the entire vested amount is
+  released in one call.
+- `cancel_stream` operates on a partially vested stream so the refund and
+  payout paths both run.
+
+### 7.1 Per-entrypoint ceilings
+
+| Entrypoint | CPU (measured) | CPU ceiling | Mem (measured) | Mem ceiling |
+|---|--:|--:|--:|--:|
+| `initialize` | _regenerate_ | 150,000 | _regenerate_ | 25,000 |
+| `create_stream` (max duration) | _regenerate_ | 380,000 | _regenerate_ | 58,000 |
+| `withdraw` (fully vested) | _regenerate_ | 320,000 | _regenerate_ | 48,000 |
+| `cancel_stream` (partial vest) | _regenerate_ | 420,000 | _regenerate_ | 62,000 |
+| `get_stream` | _regenerate_ | 150,000 | _regenerate_ | 25,000 |
+| `get_vested` | _regenerate_ | 130,000 | _regenerate_ | 22,000 |
+
+---
+
+## 8. `intent_periphery`
+
+**Harness:** `intent_periphery/src/bench.rs`
+
+### Worst-case fixtures
+
+- `submit_intent` carries the maximum payload size so the intent record write
+  and the payload hash are both exercised at their largest.
+- `fill_intent` operates on a submitted intent so the settlement hand-off and
+  the intent-state transition both run.
+- `cancel_intent` operates on a submitted intent so the state transition and
+  the refund path both run.
+
+### 8.1 Per-entrypoint ceilings
+
+| Entrypoint | CPU (measured) | CPU ceiling | Mem (measured) | Mem ceiling |
+|---|--:|--:|--:|--:|
+| `initialize` | _regenerate_ | 150,000 | _regenerate_ | 25,000 |
+| `set_settlement_contract` | _regenerate_ | 130,000 | _regenerate_ | 22,000 |
+| `submit_intent` (max payload) | _regenerate_ | 420,000 | _regenerate_ | 65,000 |
+| `fill_intent` | _regenerate_ | 380,000 | _regenerate_ | 58,000 |
+| `cancel_intent` | _regenerate_ | 280,000 | _regenerate_ | 42,000 |
+| `get_intent` | _regenerate_ | 150,000 | _regenerate_ | 25,000 |
+| `get_intent_count` | _regenerate_ | 100,000 | _regenerate_ | 18,000 |
+
+---
+
+## 9. Ceiling failure playbook
 
 If CI fails with, e.g.:
 
@@ -140,7 +304,7 @@ slash: CPU 435000 > ceiling 420000 — update CEIL_SLASH_CPU ...
 
 ---
 
-## 5. Toolchain / SDK version
+## 10. Toolchain / SDK version
 
 Numbers were captured with **`soroban-sdk 21.7.7`** on stable Rust.
 Regenerate after any SDK or toolchain bump.

@@ -15,18 +15,50 @@ import sys
 from pathlib import Path
 
 
+# Read-only view-function naming conventions used across the workspace.
+# The first group is the classic get_/is_/list_ prefix; the rest are
+# additional read-only accessors used by the newer contracts.
+VIEW_FUNCTION_PATTERN = re.compile(
+    r'pub\s+fn\s+('
+    r'(?:get_|is_|list_)\w+'
+    r'|pending_executable_at'
+    r'|balance_of'
+    r'|vested_amount'
+    r'|claimable'
+    r'|tier_for'
+    r')\s*\('
+)
+
+
 def extract_view_functions(lib_rs_path):
-    """Extract all pub fn get_*/is_*/list_* from lib.rs."""
+    """Extract all read-only view functions from a contract's lib.rs."""
     with open(lib_rs_path, 'r') as f:
         content = f.read()
 
-    # Match "pub fn <name>(" where name starts with get_, is_, or list_
-    pattern = r'pub\s+fn\s+((get_|is_|list_)\w+)\s*\('
-    matches = re.findall(pattern, content)
+    matches = VIEW_FUNCTION_PATTERN.findall(content)
 
     # Extract just the function names and sort
-    functions = sorted(list(set([m[0] for m in matches])))
+    functions = sorted(list(set(matches)))
     return functions
+
+
+def extract_all_view_functions(contracts):
+    """Extract view functions for every (contract_name, lib_rs_path) pair.
+
+    Returns a list of (contract_name, func_name) tuples, sorted by
+    contract then function name.
+    """
+    results = []
+    for contract_name, lib_rs_path in contracts:
+        path = Path(lib_rs_path)
+        if not path.exists():
+            print(f"Warning: {path} not found, skipping {contract_name}", file=sys.stderr)
+            continue
+        funcs = extract_view_functions(str(path))
+        print(f"  {contract_name}: {len(funcs)} view functions")
+        for func_name in funcs:
+            results.append((contract_name, func_name))
+    return sorted(results)
 
 
 def load_collection(collection_path):
@@ -41,10 +73,11 @@ def save_collection(collection_path, collection):
         json.dump(collection, f, indent=2)
 
 
-def create_request_template(func_name):
+def create_request_template(contract_name, func_name):
     """Create a Postman request template for a view function."""
-    # Derive variable name from function name
-    var_name = f"{func_name}_tx_xdr"
+    # Derive variable name from contract + function name
+    var_name = f"{contract_name}_{func_name}_tx_xdr"
+    entry_name = f"{contract_name}.{func_name}"
 
     # Build description with example command (simplified)
     description = f"Build XDR for: stellar contract invoke --id {{{{contract_id}}}} --source {{{{source_account}}}} --network testnet -- {func_name}"
@@ -74,14 +107,14 @@ def create_request_template(func_name):
             description = description.replace('-- ' + func_name, f"-- {func_name} --start {{{{start}}}} --limit {{{{limit}}}}")
 
     return {
-        "name": func_name,
+        "name": entry_name,
         "request": {
             "method": "POST",
             "header": [{"key": "Content-Type", "value": "application/json"}],
             "url": "{{rpc_url}}",
             "body": {
                 "mode": "raw",
-                "raw": f'{{\n  "jsonrpc": "2.0",\n  "id": "{func_name}",\n  "method": "simulateTransaction",\n  "params": {{ "transaction": "{{{{{var_name}}}}}" }}\n}}'
+                "raw": f'{{\n  "jsonrpc": "2.0",\n  "id": "{entry_name}",\n  "method": "simulateTransaction",\n  "params": {{ "transaction": "{{{{{var_name}}}}}" }}\n}}'
             },
             "description": description
         }
@@ -89,24 +122,31 @@ def create_request_template(func_name):
 
 
 def update_collection(collection_path, view_functions):
-    """Update collection with missing view functions."""
+    """Update collection with missing view functions.
+
+    ``view_functions`` is a list of (contract_name, func_name) tuples.
+    """
     collection = load_collection(collection_path)
 
-    # Get existing function names
+    # Get existing entry names
     existing_names = {item['name'] for item in collection['item']}
 
     # Find missing functions
-    missing = [f for f in view_functions if f not in existing_names]
+    missing = [
+        (contract_name, func_name)
+        for contract_name, func_name in view_functions
+        if f"{contract_name}.{func_name}" not in existing_names
+    ]
 
     print(f"Found {len(existing_names)} existing requests in collection")
-    print(f"Found {len(view_functions)} total view functions in contract")
+    print(f"Found {len(view_functions)} total view functions across contracts")
     print(f"Adding {len(missing)} missing functions...")
 
     # Add missing requests
-    for func_name in missing:
-        request = create_request_template(func_name)
+    for contract_name, func_name in missing:
+        request = create_request_template(contract_name, func_name)
         collection['item'].append(request)
-        print(f"  + {func_name}")
+        print(f"  + {contract_name}.{func_name}")
 
     # Sort items by name for consistency
     collection['item'] = sorted(collection['item'], key=lambda x: x['name'])
@@ -118,13 +158,18 @@ def update_collection(collection_path, view_functions):
 
 
 def update_markdown(markdown_path, view_functions):
-    """Update markdown documentation with complete view function list."""
+    """Update markdown documentation with complete view function list.
+
+    ``view_functions`` is a list of (contract_name, func_name) tuples.
+    """
     # Read current markdown
     with open(markdown_path, 'r') as f:
         content = f.read()
 
-    # Replace the function list section
-    function_list = "\n".join([f"- `{func}`" for func in sorted(view_functions)])
+    # Replace the function list section, grouped by contract
+    function_list = "\n".join(
+        [f"- `{contract_name}.{func}`" for contract_name, func in view_functions]
+    )
 
     new_content = re.sub(
         r'(## Import\n\n`view-calls\.postman_collection\.json` contains one example Stellar RPC\n`simulateTransaction` request for every read-only view in\n`intent_settlement/src/lib\.rs`:\n\n)(.*?)(\n\n## Import)',
@@ -152,22 +197,27 @@ def update_markdown(markdown_path, view_functions):
 
 def main():
     repo_root = Path(__file__).parent.parent
-    lib_rs = repo_root / "intent_settlement" / "src" / "lib.rs"
     collection_path = repo_root / "examples" / "view-calls.postman_collection.json"
     markdown_path = repo_root / "examples" / "view-calls.md"
 
-    if not lib_rs.exists():
-        print(f"Error: {lib_rs} not found", file=sys.stderr)
-        sys.exit(1)
+    # All contracts whose read-only view functions are documented.
+    contracts = [
+        ("intent_settlement", repo_root / "intent_settlement" / "src" / "lib.rs"),
+        ("governor", repo_root / "governor" / "src" / "lib.rs"),
+        ("backstop_vault", repo_root / "backstop_vault" / "src" / "lib.rs"),
+        ("fee_router", repo_root / "fee_router" / "src" / "lib.rs"),
+        ("treasury_streams", repo_root / "treasury_streams" / "src" / "lib.rs"),
+        ("intent_periphery", repo_root / "intent_periphery" / "src" / "lib.rs"),
+    ]
 
     if not collection_path.exists():
         print(f"Error: {collection_path} not found", file=sys.stderr)
         sys.exit(1)
 
-    # Extract view functions
-    print(f"Extracting view functions from {lib_rs}...")
-    view_functions = extract_view_functions(str(lib_rs))
-    print(f"Found {len(view_functions)} view functions")
+    # Extract view functions across all contracts
+    print("Extracting view functions...")
+    view_functions = extract_all_view_functions(contracts)
+    print(f"Found {len(view_functions)} view functions across {len(contracts)} contracts")
 
     # Update collection
     missing = update_collection(str(collection_path), view_functions)

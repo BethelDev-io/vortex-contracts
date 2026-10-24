@@ -323,5 +323,3 @@ impl Governor {
     }
 
     pub fn proposal(env: Env, proposal_id: u32) -> Result<Proposal, Gove
-
-/* … truncated 3459 chars — edit only what you need near the top … */

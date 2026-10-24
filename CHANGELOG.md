@@ -1,15 +1,24 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
-This project has not yet made a versioned release; entries below are grouped
-under "Unreleased" and will be cut into a version once `intent_settlement`
-first deploys to mainnet.
+All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
 ### Added
+
+- **Generated "Error Reference" table in `README.md` (issue #531).**
+  `scripts/generate-error-reference.py` parses the `Error` enum out of
+  `intent_settlement/src/lib.rs` and renders a row for **every** declaration
+  (127 variants, 95 distinct names) with its discriminant, the contract entry
+  points that can surface it and the variant's own rustdoc. The old
+  hand-written table had 36 rows while claiming to list every variant. The
+  script also reports the declaration collisions the enum contains (32 names
+  declared more than once, 38 reused discriminants) and the 8 variants the
+  code raises but the enum never declares. Run
+  `python3 scripts/generate-error-reference.py --check` to verify the README
+  is still in sync, or `--write` to regenerate it; `make error-reference-check`
+  and `just error-reference-check` wrap the same command. Unit tests for the
+  generator live in `scripts/tests/test_generate_error_reference.py`.
 
 - **`governor` contract — on-chain proposal/voting lifecycle (issue #508).**
   New `governor/` crate implementing proposal creation, per-address voting,
@@ -77,6 +86,7 @@ first deploys to mainnet.
 
 ### Changed
 
+- Upgraded `soroban-sdk` from `21.0.0` to `22.0.0` across the workspace root and every contract crate (`intent_settlement`, `proof_registry`, `solver_registry`, `reputation_badge`, `backstop_vault`), closing the gap left by issue #377. Migration checklist followed from `docs/event-schema.md` (typed events, test registration API, TTL/auth API notes).
 - **`fee_router` rewritten as a real Soroban contract (issue #464).**
   `fee_router/src/lib.rs` is now a deployable `#![no_std]` contract with
   `#[contract]`/`#[contractimpl]` instead of plain `std` Rust. Sinks and the
@@ -182,4 +192,4 @@ first deploys to mainnet.
   (requires auth from both the outgoing and incoming admin), and 
   `get_admin`/`get_fee_recipient` views -- previously no rotation path 
   existed for either role.
-- **Emergency pause**: `pause()`/`unpause()`/`is_paused()`, 
+- **Emergency pause**: `pause()`/`unpause()`/`is_paused()`,

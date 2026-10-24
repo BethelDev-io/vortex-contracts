@@ -51,6 +51,34 @@ pub fn bps_mul_div(amount: i128, bps: i128) -> Option<i128> {
     .checked_div(BPS)
 }
 
+/// Rounding direction for division operations.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Rounding {
+  /// Round towards zero (truncate) - default behavior.
+  Floor,
+  /// Round up (ceiling).
+  Ceil,
+  /// Round to nearest (half up).
+  Nearest,
+}
+
+/// Multiply `amount` by `bps` and divide by BPS with explicit rounding direction.
+/// Returns None on overflow.
+pub fn bps_mul_div_round(amount: i128, bps: i128, rounding: Rounding) -> Option<i128> {
+  let prod = amount.checked_mul(bps)?;
+  match rounding {
+    Rounding::Floor => Some(prod / BPS),
+    Rounding::Ceil => {
+      let (div, rem) = (prod / BPS, prod % BPS);
+      if rem > 0 { div.checked_add(1) } else { Some(div) }
+    }
+    Rounding::Nearest => {
+      let (div, rem) = (prod / BPS, prod % BPS);
+      if rem * 2 >= BPS { div.checked_add(1) } else { Some(div) }
+    }
+  }
+}
+
 /// Multiply `amount` by `bps` (basis points) and divide by BPS (10_000),
 /// rounding **up** (toward +∞) instead of down.
 ///
@@ -253,6 +281,22 @@ mod tests {
     // Same overflow guard as the floor variant.
     assert_eq!(bps_mul_div_ceil(i128::MAX, BPS + 1), None);
     assert_eq!(bps_mul_div_ceil(i128::MAX, i128::MAX), None);
+  }
+
+  #[test]
+  fn test_bps_mul_div_round() {
+    // Exact multiple: all directions agree.
+    assert_eq!(bps_mul_div_round(1000, 5000, Rounding::Floor), Some(500));
+    assert_eq!(bps_mul_div_round(1000, 5000, Rounding::Ceil), Some(500));
+    assert_eq!(bps_mul_div_round(1000, 5000, Rounding::Nearest), Some(500));
+    // 1 * 1 / 10_000 = 0.0001 → floor 0, ceil 1, nearest 0.
+    assert_eq!(bps_mul_div_round(1, 1, Rounding::Floor), Some(0));
+    assert_eq!(bps_mul_div_round(1, 1, Rounding::Ceil), Some(1));
+    assert_eq!(bps_mul_div_round(1, 1, Rounding::Nearest), Some(0));
+    // 1 * 5000 / 10_000 = 0.5 → nearest rounds half up to 1.
+    assert_eq!(bps_mul_div_round(1, 5000, Rounding::Nearest), Some(1));
+    // Overflow case.
+    assert_eq!(bps_mul_div_round(i128::MAX, BPS + 1, Rounding::Floor), None);
   }
 
   #[test]

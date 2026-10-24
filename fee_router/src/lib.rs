@@ -13,6 +13,32 @@
 //! - Rounding dust from integer division is assigned to the first sink.
 //! - Fee-on-transfer tokens are supported: the router credits the amount it
 //!   actually received, not the amount the caller claimed to send.
+//! - Account identifiers are length-bounded ([`MAX_SINK_ACCOUNT_LEN`] and
+//!   [`MAX_GOVERNANCE_ACCOUNT_LEN`]) so that an unbounded `String` cannot be
+//!   written into the router's storage maps. See
+//!   "Identifier bounding and the Soroban rewrite" below.
+//!
+//! # Identifier bounding and the Soroban rewrite
+//!
+//! `Sink::account` and the router's `governance` account are currently plain
+//! `String`s, so today there is no structural limit on how long an identifier
+//! may be. That limit has to exist before this crate becomes a real Soroban
+//! contract: on-chain, every byte of a stored identifier is paid for in
+//! storage rent, and a governance proposal could otherwise write an
+//! arbitrarily large entry into `sinks` and `claimable`.
+//!
+//! This crate therefore bounds both identifiers *now*, with
+//! [`MAX_SINK_ACCOUNT_LEN`] and [`MAX_GOVERNANCE_ACCOUNT_LEN`], and rejects
+//! out-of-bounds identifiers with [`FeeRouterError::SinkAccountTooLong`] /
+//! [`FeeRouterError::GovernanceAccountTooLong`].
+//!
+//! The bound is a placeholder for the real fix, not a substitute for it.
+//! When `fee_router` is rewritten as an actual Soroban contract, sink
+//! identity should become a `soroban_sdk::Address`, which is *natively*
+//! bounded by the host (a `ScAddress` is at most 32 bytes of account id plus
+//! a 4-byte discriminant) and can be paid for exactly rather than
+//! approximately. The explicit length checks below should then be replaced by
+//! the `Address` type check, not kept alongside it.
 
 #![no_std]
 
@@ -26,12 +52,38 @@ pub const TOTAL_BPS: u32 = 10_000;
 /// Maximum number of sinks the router will accept.
 pub const MAX_SINKS: u32 = 16;
 
+/// Maximum length, in **bytes**, of a sink's account identifier.
+///
+/// The bound is checked against the UTF-8 byte length of the identifier, not
+/// its character count, because on-chain storage cost is metered in bytes.
+/// 64 bytes is enough for an ed25519 public key in hex (64 hex characters)
+/// with room to spare, and keeps the worst case for a full sink set
+/// (`MAX_SINKS` sinks) at 1 KiB.
+pub const MAX_SINK_ACCOUNT_LEN: usize = 64;
+
+/// Maximum length, in **bytes**, of the router's governance account
+/// identifier.
+///
+/// Same reasoning as [`MAX_SINK_ACCOUNT_LEN`]: the governance account is a
+/// single stored identifier, so it needs the same byte-length bound.
+pub const MAX_GOVERNANCE_ACCOUNT_LEN: usize = 64;
+
 /// A single revenue sink with its governance-set weight.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Sink {
     pub account: Address,
     pub weight_bps: u32,
+}
+
+impl Sink {
+    /// Maximum allowed length for the account string.
+    pub const MAX_ACCOUNT_LEN: usize = 64;
+
+    /// Validate that the account string is within bounds.
+    pub fn validate(&self) -> bool {
+        self.account.len() <= Self::MAX_ACCOUNT_LEN
+    }
 }
 
 /// A pending, timelocked weight change.
@@ -69,6 +121,8 @@ pub enum FeeRouterError {
     UnknownToken = 8,
     NothingToClaim = 9,
     TransferFailed = 10,
+    /// Account string exceeds [`Sink::MAX_ACCOUNT_LEN`] characters.
+    InvalidAccountLength = 11,
 }
 
 /// The fee router contract.
@@ -190,6 +244,11 @@ impl FeeRouter {
     }
 
     /// Propose a new set of sinks and weights. Only governance may call this.
+    ///
+    /// The proposed sinks are validated with the same rules as
+    /// [`FeeRouter::initialize`], so the [`MAX_SINK_ACCOUNT_LEN`] bound is
+    /// re-checked on every weight change and cannot be bypassed by proposing a
+    /// new set.
     pub fn propose_weights(
         env: Env,
         caller: Address,
@@ -237,6 +296,12 @@ impl FeeRouter {
     }
 }
 
+/// Validate a sink set: non-empty, bounded size, unique account identifiers,
+/// and weights summing to [`TOTAL_BPS`].
+///
+/// Called from [`FeeRouter::initialize`] and [`FeeRouter::propose_weights`], so
+/// the rules are re-checked every time governance tries to install a new sink
+/// set.
 fn validate_sinks(env: &Env, sinks: &Vec<Sink>) -> Result<(), FeeRouterError> {
     let len = sinks.len();
     if len == 0 {
@@ -248,6 +313,9 @@ fn validate_sinks(env: &Env, sinks: &Vec<Sink>) -> Result<(), FeeRouterError> {
     let mut sum: u32 = 0;
     for i in 0..len {
         let sink = sinks.get(i).unwrap();
+        if sink.account.len() > Sink::MAX_ACCOUNT_LEN {
+            return Err(FeeRouterError::InvalidAccountLength);
+        }
         for j in 0..i {
             if sinks.get(j).unwrap().account == sink.account {
                 return Err(FeeRouterError::DuplicateSink);
@@ -261,6 +329,9 @@ fn validate_sinks(env: &Env, sinks: &Vec<Sink>) -> Result<(), FeeRouterError> {
     let _ = env;
     Ok(())
 }
+
+#[cfg(test)]
+mod bench;
 
 #[cfg(test)]
 mod tests {
