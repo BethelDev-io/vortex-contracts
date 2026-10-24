@@ -35,6 +35,7 @@ on:
 #   audit         — checkout, cargo audit            → contents: read  ✓
 #   secrets-scan  — checkout only                    → contents: read  ✓
 #   mutants       — checkout, cargo mutants          → contents: read  ✓
+#   policy-daily-cap-tests — checkout, cargo test    → contents: read  ✓
 permissions:
   contents: read
 
@@ -311,6 +312,26 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Run \`cargo test --features testutils bench -- --nocapture\` locally to see per-entrypoint measurements and CEILING_HINT lines." >> "$GITHUB_STEP_SUMMARY"
           echo "See docs/149-intent-settlement.md and docs/149-satellite-contracts.md for the reference tables." >> "$GITHUB_STEP_SUMMARY"
+
+  policy-daily-cap-tests:
+    name: policy_daily_cap example tests
+    runs-on: ubuntu-latest
+    # Needs: contents: read (checkout only). Inherits workflow-level minimum.
+    #
+    # `examples/policy_daily_cap` is not a member of the root workspace, so it
+    # is built and tested from its own directory rather than via `-p`.
+    defaults:
+      run:
+        working-directory: examples/policy_daily_cap
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: examples/policy_daily_cap
+      - name: Test
+        run: cargo test --features testutils
 
   proptest:
     name: Bond-conservation proptest
