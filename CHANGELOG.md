@@ -1,11 +1,6 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
-This project has not yet made a versioned release; entries below are grouped
-under "Unreleased" and will be cut into a version once `intent_settlement`
-first deploys to mainnet.
+All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
@@ -91,6 +86,7 @@ first deploys to mainnet.
 
 ### Changed
 
+- Upgraded `soroban-sdk` from `21.0.0` to `22.0.0` across the workspace root and every contract crate (`intent_settlement`, `proof_registry`, `solver_registry`, `reputation_badge`, `backstop_vault`), closing the gap left by issue #377. Migration checklist followed from `docs/event-schema.md` (typed events, test registration API, TTL/auth API notes).
 - **`fee_router` rewritten as a real Soroban contract (issue #464).**
   `fee_router/src/lib.rs` is now a deployable `#![no_std]` contract with
   `#[contract]`/`#[contractimpl]` instead of plain `std` Rust. Sinks and the
