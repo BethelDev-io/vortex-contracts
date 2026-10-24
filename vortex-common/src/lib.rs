@@ -121,12 +121,8 @@ pub fn compute_slash_bps(tier: u32) -> i128 {
 
 // ─── Admin Pattern ───────────────────────────────────────────────────────────
 // Issue #352: Two-step admin transfer is consistent across contracts
-
-/// Storage key type for admin address (defined by contracts).
-pub trait AdminStorage {
-  fn get_admin(env: &Env) -> Address;
-  fn set_admin(env: &Env, new_admin: Address);
-}
+// Note: the unused `AdminStorage` and `Versioned` traits were removed as dead code (issue #506);
+// the #353 migration framework uses `CURRENT_SCHEMA_VERSION` instead of `Versioned`.
 
 /// Helper to assert the caller is admin.
 ///
@@ -158,11 +154,6 @@ pub fn require_admin(
 
 /// Schema version for persistent records. Enables lazy migrations on first touch.
 pub const CURRENT_SCHEMA_VERSION: u32 = 1;
-
-/// Base for version checking: starts at 1, increments for each migration.
-pub trait Versioned {
-  fn schema_version() -> u32;
-}
 
 #[cfg(test)]
 mod tests {

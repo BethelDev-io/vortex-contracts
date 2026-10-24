@@ -68,6 +68,35 @@ It is intended for auditors and integrators.
 | User swap output | Solver's token balance (transferred in `fill_intent`) | Unbounded |
 | Protocol fees | `FeeRecipient` address | 0.05 % of filled volume |
 | Admin privileges | `Admin` key in instance storage | Full contract control |
+| LP deposits | `backstop_vault` contract account (bond token / USDC) | Sum of all LP deposits |
+| Escrowed stream deposits | `treasury_streams` contract account (stream token) | Sum of unvested stream balances |
+
+#### `backstop_vault` custody
+
+`backstop_vault` custodies real LP deposits: LPs transfer tokens in via
+`deposit()`, and the contract holds them in its own account. Funds can only
+leave through:
+
+- `cover()` / `receive_income()` — settlement-only callbacks invoked by the
+  settlement flow; they move funds as part of covering a shortfall or booking
+  income, never on behalf of an arbitrary caller.
+- `withdraw()` — LP-initiated, and only after the 48-hour cooldown has elapsed.
+
+The admin's only authority over custodied funds is `set_emergency_mode`, which
+queues withdrawals (it does not transfer tokens out). A compromised admin key
+can therefore delay LP exits but cannot directly drain the vault.
+
+#### `treasury_streams` custody
+
+`treasury_streams` escrows real token deposits in its contract account for the
+lifetime of each stream. Funds move only through:
+
+- `create_stream` / `cancel` — governor-gated; they set up or tear down a
+  stream and its escrow.
+- `withdraw` — recipient-initiated, limited to the amount vested so far.
+
+No other new contract holds third-party funds the way `backstop_vault` and
+`treasury_streams` do; the remaining contracts hold no user or LP deposits.
 
 ---
 
