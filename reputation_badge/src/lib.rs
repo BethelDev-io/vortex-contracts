@@ -20,6 +20,21 @@ mod test;
 #[cfg(test)]
 mod bench;
 
+// ─── TTL Constants ────────────────────────────────────────────────────────────
+//
+// Follows the convention documented in `docs/ttl-constants-rationale.md` and
+// mirrored from `backstop_vault`'s TTL helpers.
+
+/// Bump the instance TTL when it drops below this many ledgers.
+const INSTANCE_TTL_THRESHOLD: u32 = 17_280; // ~1 day at 5s/ledger
+/// Extend the instance TTL to this many ledgers.
+const INSTANCE_TTL_EXTEND_TO: u32 = 518_400; // ~30 days at 5s/ledger
+
+/// Bump a persistent entry's TTL when it drops below this many ledgers.
+const PERSISTENT_TTL_THRESHOLD: u32 = 17_280; // ~1 day at 5s/ledger
+/// Extend a persistent entry's TTL to this many ledgers.
+const PERSISTENT_TTL_EXTEND_TO: u32 = 518_400; // ~30 days at 5s/ledger
+
 // ─── Storage Keys ─────────────────────────────────────────────────────────────
 
 #[contracttype]
@@ -75,6 +90,7 @@ impl ReputationBadge {
         }
         admin.require_auth();
         env.storage().instance().set(&BadgeKey::Admin, &admin);
+        Self::bump_instance_ttl(&env);
     }
 
     /// Mint (or overwrite, on a tier change) `solver`'s badge to `tier`.
@@ -82,9 +98,9 @@ impl ReputationBadge {
     /// a stale old-tier badge for a caller to mistakenly read.
     pub fn mint_badge(env: Env, solver: Address, tier: Tier) {
         Self::require_admin(&env);
-        env.storage()
-            .persistent()
-            .set(&BadgeKey::Badge(solver.clone()), &tier);
+        let key = BadgeKey::Badge(solver.clone());
+        env.storage().persistent().set(&key, &tier);
+        Self::bump_persistent_ttl(&env, &key);
         env.events()
             .publish((Symbol::new(&env, "badge_minted"), solver), tier);
     }
@@ -119,5 +135,21 @@ impl ReputationBadge {
             .get(&BadgeKey::Admin)
             .unwrap_or_else(|| panic_with_error!(env, Error::NotInitialized));
         admin.require_auth();
+    }
+
+    /// Extend the instance storage TTL if it has fallen below the threshold.
+    fn bump_instance_ttl(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND_TO);
+    }
+
+    /// Extend a persistent entry's TTL if it has fallen below the threshold.
+    fn bump_persistent_ttl(env: &Env, key: &BadgeKey) {
+        env.storage().persistent().extend_ttl(
+            key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND_TO,
+        );
     }
 }
