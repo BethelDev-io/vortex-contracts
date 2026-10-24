@@ -714,6 +714,93 @@ async function main() {
   console.log("[indexer] all assertions passed ✓");
 }
 
+/**
+ * Reference indexer for the `solver_registry` contract.
+ *
+ * Replays solver_registry events (distinct from the intent_settlement events
+ * handled by VortexIndexer; the two contracts share some event names with
+ * different payloads) and rebuilds per-solver state.
+ */
+class SolverRegistryIndexer {
+  constructor() {
+    /** @type {Map<string, {address: string, bondAmount: bigint, tier: any, fillsCompleted: number, fillsFailed: number, totalVolume: bigint, lockedObligations: number}>} */
+    this.solvers = new Map();
+    this.processedCount = 0;
+    this.errors = [];
+  }
+
+  replay(events) {
+    for (const event of events) {
+      try {
+        this._dispatch(event);
+        this.processedCount++;
+      } catch (err) {
+        this.errors.push({ event, error: err.message });
+      }
+    }
+  }
+
+  _solver(address) {
+    const rec = this.solvers.get(address);
+    if (!rec) throw new Error(`unknown solver ${address}`);
+    return rec;
+  }
+
+  _dispatch({ topics, value }) {
+    const [name, solver] = topics;
+    switch (name) {
+      case "solver_registered":
+        // data: bond_amount: i128
+        this.solvers.set(solver, {
+          address: solver,
+          bondAmount: BigInt(value),
+          tier: null,
+          fillsCompleted: 0,
+          fillsFailed: 0,
+          totalVolume: 0n,
+          lockedObligations: 0,
+        });
+        break;
+      case "staked":
+        // data: (amount, new_bond)
+        this._solver(solver).bondAmount = BigInt(value[1]);
+        break;
+      case "unstaked":
+        // data: (amount, remaining)
+        this._solver(solver).bondAmount = BigInt(value[1]);
+        break;
+      case "solver_deregistered":
+        this.solvers.delete(solver);
+        break;
+      case "fill_recorded": {
+        // data: (amount, score)
+        const rec = this._solver(solver);
+        rec.fillsCompleted += 1;
+        rec.totalVolume += BigInt(value[0]);
+        break;
+      }
+      case "failure_recorded":
+        this._solver(solver).fillsFailed += 1;
+        break;
+      case "solver_slashed": {
+        // data: (slash_amount, new_tier)
+        const rec = this._solver(solver);
+        rec.bondAmount -= BigInt(value[0]);
+        rec.tier = value[1];
+        break;
+      }
+      case "obligation_locked":
+      case "obligation_released":
+        // data: (intent_id, count) — count is the authoritative lock total.
+        this._solver(solver).lockedObligations = Number(value[1]);
+        break;
+      default:
+        // Admin/writer/tier-config events carry no per-solver state.
+        break;
+    }
+  }
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(`Assertion failed: ${message}`);
   console.log(`  ✓ ${message.split(":")[0]}`);
@@ -724,4 +811,4 @@ main().catch((err) => {
   process.exit(1);
 });
 
-module.exports = { VortexIndexer };
+module.exports = { VortexIndexer, SolverRegistryIndexer };

@@ -39,13 +39,189 @@ updates:
       major-updates:
         dependency-type: major
 
+  # Cargo dependencies in solver_registry/
+  - package-ecosystem: cargo
+    directory: /solver_registry
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:30"
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        dependency-type: minor
+      major-updates:
+        dependency-type: major
+
+  # Cargo dependencies in reputation_badge/
+  - package-ecosystem: cargo
+    directory: /reputation_badge
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:45"
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        dependency-type: minor
+      major-updates:
+        dependency-type: major
+
+  # Cargo dependencies in governor/
+  - package-ecosystem: cargo
+    directory: /governor
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        dependency-type: minor
+      major-updates:
+        dependency-type: major
+
+  # Cargo dependencies in backstop_vault/
+  - package-ecosystem: cargo
+    directory: /backstop_vault
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:15"
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        dependency-type: minor
+      major-updates:
+        dependency-type: major
+
+  # Cargo dependencies in fee_router/
+  - package-ecosystem: cargo
+    directory: /fee_router
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:30"
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        dependency-type: minor
+      major-updates:
+        dependency-type: major
+
+  # Cargo dependencies in intent_periphery/
+  - package-ecosystem: cargo
+    directory: /intent_periphery
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:45"
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        dependency-type: minor
+      major-updates:
+        dependency-type: major
+
+  # Cargo dependencies in timelock/
+  - package-ecosystem: cargo
+    directory: /timelock
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        dependency-type: minor
+      major-updates:
+        dependency-type: major
+
+  # Cargo dependencies in treasury_streams/
+  - package-ecosystem: cargo
+    directory: /treasury_streams
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:15"
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        dependency-type: minor
+      major-updates:
+        dependency-type: major
+
+  # Cargo dependencies in vortex-common/
+  - package-ecosystem: cargo
+    directory: /vortex-common
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:30"
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        dependency-type: minor
+      major-updates:
+        dependency-type: major
+
+  # Cargo dependencies in examples/policy_daily_cap/
+  - package-ecosystem: cargo
+    directory: /examples/policy_daily_cap
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:45"
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        dependency-type: minor
+      major-updates:
+        dependency-type: major
+
+  # Cargo dependencies in tools/spec-check/
+  - package-ecosystem: cargo
+    directory: /tools/spec-check
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        dependency-type: minor
+      major-updates:
+        dependency-type: major
+
   # GitHub Actions versions in .github/workflows/
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
-      time: "03:30"
+      time: "06:15"
     # Only allow patch updates for actions; major version bumps are reviewed manually
     allow:
       - dependency-type: patch

@@ -25,3 +25,13 @@ soroban-sdk = { version = "21.0.0", features = ["testutils"] }
 
 [features]
 testutils = ["soroban-sdk/testutils"]
+
+# `backstop_vault` is not a member of the repository's root workspace, and the
+# root manifest currently cannot be loaded at all (it lists two members whose
+# directories do not exist — `directory` and `arbiter_panel`; issues #554 /
+# #555).  Declaring this crate as its own workspace root keeps it
+# independently buildable and testable, and gives it its own `Cargo.lock`,
+# exactly like the other contract crates in the tree
+# (`intent_settlement/Cargo.lock`, `proof_registry/Cargo.lock`,
+# `solver_registry/Cargo.lock`).
+[workspace]

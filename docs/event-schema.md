@@ -582,3 +582,314 @@ Emitted by `execute_set_policy`.
 |-------|------|-------------|
 | topics[0] | `Symbol("policy_updated")` | event name |
 | data | `Option<Address>` | new active policy address (None = cleared) |
+
+---
+
+# Event Schema — `backstop_vault`
+
+> Added in issue #519. Source of truth: `backstop_vault/src/lib.rs`.
+
+The backstop vault is an LP pool that absorbs solver-default losses and earns a
+share of protocol fees and slash proceeds. All token amounts are `i128` in the
+bond token's smallest unit (stroops for USDC with 7 decimal places).
+
+---
+
+## Event Catalogue
+
+### LP Events
+
+---
+
+#### `deposit`
+
+Emitted by `deposit` after the LP's bond-token transfer is confirmed and shares
+are minted.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"deposit"` |
+| **topics[1]** | `Address` | `lp` — the liquidity provider |
+| **data[0]** | `i128` | `amount` — bond-token units deposited |
+| **data[1]** | `i128` | `shares_minted` — vault shares issued to the LP |
+
+```
+topics : ("deposit", <lp: Address>)
+data   : (amount: i128, shares_minted: i128)
+```
+
+---
+
+#### `withdraw`
+
+Emitted by `withdraw` on a normal (non-queued) share redemption after the bond
+tokens have been transferred back to the LP.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"withdraw"` |
+| **topics[1]** | `Address` | `lp` — the liquidity provider |
+| **data[0]** | `i128` | `shares` — vault shares redeemed |
+| **data[1]** | `i128` | `assets_out` — bond-token units returned |
+
+```
+topics : ("withdraw", <lp: Address>)
+data   : (shares: i128, assets_out: i128)
+```
+
+---
+
+#### `withdraw_queued`
+
+Emitted by `withdraw` when the vault is in emergency mode. Shares are burned
+immediately but the asset payout is deferred until `process_queued_withdrawal`
+is called.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"withdraw_queued"` |
+| **topics[1]** | `Address` | `lp` — the liquidity provider |
+| **data[0]** | `i128` | `shares` — vault shares burned |
+| **data[1]** | `i128` | `assets_out` — bond-token units queued for payout |
+
+```
+topics : ("withdraw_queued", <lp: Address>)
+data   : (shares: i128, assets_out: i128)
+```
+
+---
+
+#### `queued_withdrawal_processed`
+
+Emitted by `process_queued_withdrawal` after the queued payout is transferred
+to the LP.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"queued_withdrawal_processed"` |
+| **topics[1]** | `Address` | `lp` — the liquidity provider |
+| **data** | `i128` | `payout` — bond-token units actually transferred (may be less than queued amount if vault is underfunded) |
+
+```
+topics : ("queued_withdrawal_processed", <lp: Address>)
+data   : <payout: i128>
+```
+
+---
+
+### Settlement-Callback Events
+
+---
+
+#### `cover`
+
+Emitted by `cover` after the vault pays out backstop compensation to a user
+whose solver defaulted. Loss is socialized across all LP shares by reducing
+`TotalAssets`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"cover"` |
+| **topics[1]** | `Address` | `recipient` — the party receiving the compensation |
+| **data[0]** | `BytesN<32>` | `intent_id` — the intent that triggered the cover |
+| **data[1]** | `i128` | `payout` — bond-token units paid out (capped at `TotalAssets`) |
+
+```
+topics : ("cover", <recipient: Address>)
+data   : (intent_id: BytesN<32>, payout: i128)
+```
+
+---
+
+#### `income_received`
+
+Emitted by `receive_income` when the settlement contract deposits fee or slash
+proceeds into the vault. Increases `TotalAssets`, appreciating all LP shares.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"income_received"` |
+| **data** | `i128` | `amount` — bond-token units received |
+
+```
+topics : ("income_received",)
+data   : <amount: i128>
+```
+
+---
+
+### Admin Events
+
+---
+
+#### `emergency_mode`
+
+Emitted by `set_emergency_mode` when the admin enables or disables the
+emergency withdrawal-queue mode.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"emergency_mode"` |
+| **data** | `bool` | `true` = emergency mode active (withdrawals queue); `false` = normal |
+
+```
+topics : ("emergency_mode",)
+data   : <enabled: bool>
+```
+
+---
+
+# Event Schema — `treasury_streams`
+
+> Added in issue #519. Source of truth: `treasury_streams/src/lib.rs`.
+
+`treasury_streams` manages timelocked token vesting streams for grants and
+contributor payments. All amounts are `i128` in the token's smallest unit.
+Stream IDs are monotonically increasing `u64` counters.
+
+> **Note:** `treasury_streams` uses `soroban_sdk::symbol_short!` for the event
+> name topic (max 9 bytes), so the symbol values are exactly `"create"`,
+> `"withdraw"`, and `"cancel"` — not longer names.
+
+---
+
+## Event Catalogue
+
+---
+
+#### `create` (stream created)
+
+Emitted by `create_stream` after the sender's tokens are escrowed.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"create"` |
+| **topics[1]** | `u64` | `id` — the newly assigned stream ID |
+| **data[0]** | `Address` | `sender` |
+| **data[1]** | `Address` | `recipient` |
+| **data[2]** | `Address` | `token` |
+| **data[3]** | `i128` | `total` — total tokens locked in the stream |
+| **data[4]** | `u64` | `start` — Unix timestamp when vesting begins |
+| **data[5]** | `u64` | `cliff` — Unix timestamp before which nothing is withdrawable |
+| **data[6]** | `u64` | `end` — Unix timestamp when vesting completes |
+
+```
+topics : ("create", <id: u64>)
+data   : (sender: Address, recipient: Address, token: Address,
+          total: i128, start: u64, cliff: u64, end: u64)
+```
+
+---
+
+#### `withdraw` (stream withdrawal)
+
+Emitted by `withdraw` after the recipient pulls currently-vested funds.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"withdraw"` |
+| **topics[1]** | `u64` | `stream_id` |
+| **data[0]** | `Address` | `recipient` |
+| **data[1]** | `i128` | `claimable` — tokens transferred in this call |
+
+```
+topics : ("withdraw", <stream_id: u64>)
+data   : (recipient: Address, claimable: i128)
+```
+
+---
+
+#### `cancel` (stream cancelled)
+
+Emitted by `cancel` after unvested tokens are returned to the sender. The
+recipient retains the right to withdraw any already-vested remainder.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"cancel"` |
+| **topics[1]** | `u64` | `stream_id` |
+| **data[0]** | `Address` | `sender` — receives the unvested refund |
+| **data[1]** | `i128` | `unvested` — tokens returned to the sender |
+
+```
+topics : ("cancel", <stream_id: u64>)
+data   : (sender: Address, unvested: i128)
+```
+
+---
+
+# Event Schema — `intent_periphery`
+
+> Added in issue #519. Source of truth: `intent_periphery/src/lib.rs`.
+
+`intent_periphery` is a read-only proxy that aggregates heavy view and
+governance surfaces from the core `intent_settlement` contract. It emits only
+two administrative events (it never moves funds).
+
+---
+
+## Event Catalogue
+
+---
+
+#### `periphery_initialized`
+
+Emitted by `initialize` on first-time setup.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"periphery_initialized"` |
+| **data[0]** | `Address` | `admin` |
+| **data[1]** | `Address` | `settlement` — the core contract this periphery reads from |
+
+```
+topics : ("periphery_initialized",)
+data   : (admin: Address, settlement: Address)
+```
+
+---
+
+#### `settlement_updated`
+
+Emitted by `set_settlement` when the admin points the periphery at a new core
+settlement contract (e.g. after a core upgrade).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol` | `"settlement_updated"` |
+| **data** | `Address` | `settlement` — the new settlement contract address |
+
+```
+topics : ("settlement_updated",)
+data   : <settlement: Address>
+```
+
+---
+
+# Event Schema — `governor`
+
+> Added in issue #519. Source of truth: `governor/src/lib.rs`.
+
+The `governor` contract manages stake-weighted on-chain governance. As of this
+writing the governor does **not yet emit events** — state transitions are
+recorded entirely in persistent storage and can be reconstructed via the
+`state`, `get_proposal`, and `voting_power` view functions.
+
+Event emission for `proposed`, `voted`, `queued`, and `executed` transitions is
+tracked in the open roadmap item referenced by this issue. When those events are
+added, this section will be expanded with their full schemas.
+
+---
+
+# Event Schema — `fee_router`
+
+> Added in issue #519. Source of truth: `fee_router/src/lib.rs`.
+
+`fee_router` is implemented as a **pure Rust library crate** (not a Soroban
+contract), so it does not emit Soroban events via `env.events().publish()`.
+Revenue accounting (`on_fee_received`, `distribute`, `claim`), weight changes
+(`propose_weights`, `apply_weights`), and error conditions are surfaced
+exclusively through return values and the caller's own event layer.
+
+If `fee_router` is later promoted to a standalone Soroban contract, this
+section will be updated with its event schema.

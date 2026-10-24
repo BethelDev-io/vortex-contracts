@@ -1,19 +1,8 @@
-# Vortex Contracts — Makefile
-#
-# Wraps the commands documented in README.md so contributors never need to
-# copy-paste raw multi-flag invocations.  All targets run inside the
-# intent_settlement workspace directory.
-#
-# Usage:
-#   make          — print help
-#   make all      — fmt + lint + test + build (full pre-push check)
-#   make fmt      — format all source files
-#   make lint     — clippy with -D warnings (identical to CI)
-#   make test     — run unit / integration tests
-#   make build    — compile the release wasm binary
-#   make deploy-testnet — deploy to Stellar testnet (requires STELLAR_SOURCE)
+.PHONY: build-wasms integration-test
 
-.DEFAULT_GOAL := help
+build-wasms:
+	cargo build --release --target wasm32-unknown-unknown \
+		-p registry -p intent_settlement -p proofs -p badges
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -107,7 +96,11 @@ local-network-logs:  ## Tail local network logs
 local-network-status:  ## Check local network status
 	./setup-local-network.sh status
 
-# ── Help ──────────────────────────────────────────────────────────────────────
+# ── Integration tests ────────────────────────────────────────────────────────
+
+.PHONY: integration-test
+integration-test: build-wasms  ## Run the integration test suite against freshly built wasms
+	cargo test -p integration-tests
 
 # ── Kani model checking (issue #415) ────────────────────────────────────────
 
