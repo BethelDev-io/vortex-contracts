@@ -81,3 +81,39 @@ jobs:
             intent_settlement/.proptest-regressions
             intent_settlement/proptest-regressions/
           retention-days: 30
+
+  proptest-nightly-proof-registry:
+    name: Proptest nightly run (proof_registry)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: proof_registry
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: proof_registry
+          key: nightly-fuzz
+
+      - name: Run payload decoding proptests with high case count
+        env:
+          PROPTEST_CASES: 10000
+          PROPTEST_TIMEOUT: 60000
+        run: |
+          echo "### Nightly Proptest Run (proof_registry)" >> "$GITHUB_STEP_SUMMARY"
+          cargo test --features testutils -- proptest_ --nocapture 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proptest-proof-registry-artifacts-${{ github.run_id }}
+          path: |
+            proof_registry/.proptest-regressions
+            proof_registry/proptest-regressions/
+          retention-days: 30
